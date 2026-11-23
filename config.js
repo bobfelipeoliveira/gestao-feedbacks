@@ -10,8 +10,8 @@
    NUNCA coloque aqui a chave "service_role" / "secret".
    ============================================================ */
 var SGF_CONFIG = {
-  supabaseUrl: "https://SEU-PROJETO.supabase.co",
-  supabaseAnonKey: "COLE_AQUI_A_CHAVE_ANON_PUBLICA",
+  supabaseUrl: "https://ckedzjdlbkllnvkppyel.supabase.co",
+  supabaseAnonKey: "sb_publishable_CuhGF_99T6VpkDfcpsu0Xg_hFXS3em9",
   // o login "Nome.Sobrenome" vira o e-mail "nome.sobrenome@<dominioLogin>" no Supabase
   dominioLogin: "solarcuidados.com.br",
 };
