@@ -39,7 +39,13 @@ function ok(resp){
 async function carregarPerfil(){
   const { data: { user } } = await SB.auth.getUser();
   if (!user) return null;
-  const p = ok(await SB.from("perfis").select("user_id, username, nome, role, ativo, must_change_pw, ia_habilitada").eq("user_id", user.id).maybeSingle());
+  // Se o banco ainda não tiver a coluna nova (schema.sql não atualizado), entra sem a IA em vez de bloquear o login.
+  let resp = await SB.from("perfis").select("user_id, username, nome, role, ativo, must_change_pw, ia_habilitada").eq("user_id", user.id).maybeSingle();
+  if (resp.error && /ia_habilitada/.test(resp.error.message || "")){
+    console.warn("Banco desatualizado: rode o supabase/schema.sql para habilitar a IA automática.");
+    resp = await SB.from("perfis").select("user_id, username, nome, role, ativo, must_change_pw").eq("user_id", user.id).maybeSingle();
+  }
+  const p = ok(resp);
   if (!p) return null;
   return {id: p.user_id, username: p.username, nome: p.nome, role: p.role, ativo: p.ativo, mustChangePw: p.must_change_pw, iaHabilitada: !!p.ia_habilitada};
 }
@@ -173,7 +179,11 @@ async function apiSupabase(metodo, caminho, corpo){
       return {ok:true};
     }
     case "GET /api/usuarios": {
-      const r = ok(await SB.from("perfis").select("user_id, username, nome, role, ativo, must_change_pw, ia_habilitada, criado_em").order("role").order("username"));
+      let resp = await SB.from("perfis").select("user_id, username, nome, role, ativo, must_change_pw, ia_habilitada, criado_em").order("role").order("username");
+      if (resp.error && /ia_habilitada/.test(resp.error.message || "")){
+        resp = await SB.from("perfis").select("user_id, username, nome, role, ativo, must_change_pw, criado_em").order("role").order("username");
+      }
+      const r = ok(resp);
       return {usuarios: r.map(u => ({id:u.user_id, username:u.username, nome:u.nome, role:u.role, active:u.ativo, mustChangePw:u.must_change_pw, iaHabilitada:!!u.ia_habilitada, createdAt:u.criado_em}))};
     }
     case "PATCH /api/usuarios/:id": {
