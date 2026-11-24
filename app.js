@@ -123,8 +123,14 @@ async function apiSupabase(metodo, caminho, corpo){
       if (!/^[a-z][a-z0-9._-]{1,60}$/.test(username)) throw new Error("Usuário ou senha inválidos.");
       const r = await SB.auth.signInWithPassword({email: username + "@" + SGF_CONFIG.dominioLogin, password: String(corpo.senha||"")});
       if (r.error){
-        if (/rate limit|too many/i.test(r.error.message)) throw new Error("Muitas tentativas. Aguarde alguns minutos.");
-        throw new Error("Usuário ou senha inválidos.");
+        const m = String(r.error.message || ""), code = String(r.error.code || "");
+        console.warn("Falha no login (Supabase):", r.error.status, code, m);
+        if (/rate limit|too many/i.test(m) || code === "over_request_rate_limit") throw new Error("Muitas tentativas. Aguarde alguns minutos.");
+        if (/not confirmed/i.test(m) || code === "email_not_confirmed") throw new Error("Usuário ainda não confirmado. No Supabase, o usuário precisa ser criado com “Auto Confirm User”.");
+        if (/api key|apikey/i.test(m)) throw new Error("Configuração do sistema inválida (chave do Supabase). Avise o administrador.");
+        if (/fetch|network/i.test(m) || r.error.name === "AuthRetryableFetchError") throw new Error("Não foi possível conectar ao Supabase. Verifique a internet e tente novamente.");
+        if (code === "invalid_credentials" || /invalid login credentials/i.test(m)) throw new Error("Usuário ou senha inválidos.");
+        throw new Error("Não foi possível entrar (" + (code || r.error.status || "erro") + "): " + m);
       }
       const u = await carregarPerfil();
       if (!u || !u.ativo){
