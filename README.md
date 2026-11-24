@@ -86,6 +86,23 @@ update perfis set role = 'admin', ativo = true where username = 'seu.login';
 
 ---
 
+## IA automática (opcional, paga por uso)
+
+A sugestão automática usa o **Claude Opus 5.5** por uma Edge Function do Supabase
+(`supabase/functions/avaliar-ia`). A chave da Anthropic fica só no Supabase. O admin libera
+a IA **por pessoa** (tela Usuários → "Liberar IA"). Limite: 20 usos por hora e 80 por dia por pessoa.
+
+1. **Anthropic:** em <https://console.anthropic.com>, crie a conta, compre créditos, defina um
+   **limite de gasto mensal** (Settings → Limits) e crie uma **API key**.
+2. **Supabase → Edge Functions → Deploy a new function → Via Editor**: nome `avaliar-ia`, cole o
+   conteúdo de `supabase/functions/avaliar-ia/index.ts` e clique em **Deploy**.
+3. **Supabase → Edge Functions → Secrets**: adicione `ANTHROPIC_API_KEY` com a chave.
+   (Opcional: `ALLOWED_ORIGINS` se o endereço do site mudar.)
+4. Se aparecer "Invalid JWT" ao gerar a sugestão, desligue **Verify JWT** nas configurações da função:
+   ela já confere o login de cada pessoa no banco.
+
+Custo estimado: cerca de US$ 0,10 por avaliação de uma ligação de ~5 min.
+
 ## Limites do plano gratuito (importante)
 
 - **O Supabase Free pausa o projeto após 7 dias sem nenhum acesso.** Os dados não se perdem: basta

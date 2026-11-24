@@ -504,3 +504,47 @@ create policy aval_upd on public.avaliacoes for update to authenticated
   using (eh_admin() or (usuario_ok() and autor_id = auth.uid()))
   with check (eh_admin() or (usuario_ok() and autor_id = auth.uid()));
 grant update (data) on public.avaliacoes to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 9. IA AUTOMÁTICA (Claude via Edge Function "avaliar-ia")
+--    Liberada POR USUÁRIO pelo admin. A chave da Anthropic fica só no
+--    Supabase (secret ANTHROPIC_API_KEY), nunca no navegador.
+-- ---------------------------------------------------------------------
+alter table public.perfis add column if not exists ia_habilitada boolean not null default false;
+
+-- Admin liga/desliga a IA de qualquer usuário (inclusive de si mesmo).
+create or replace function public.definir_ia(p_user uuid, p_valor boolean) returns void
+language plpgsql security definer set search_path = public as $$
+begin
+  if not eh_admin() then raise exception 'Você não tem permissão para esta ação.'; end if;
+  update perfis set ia_habilitada = p_valor where user_id = p_user;
+  perform auditar(case when p_valor then 'ia.liberada' else 'ia.removida' end,
+                  (select username from perfis where user_id = p_user), null);
+end $$;
+
+-- Chamada pela Edge Function, com o login do usuário: confere permissão,
+-- aplica limite de uso (por hora e por dia), registra auditoria e devolve
+-- se o mascaramento está ligado.
+create or replace function public.autorizar_uso_ia(p_caracteres integer) returns jsonb
+language plpgsql security definer set search_path = public as $$
+declare n_hora int; n_dia int;
+begin
+  if not usuario_ok() then raise exception 'Acesso não liberado.'; end if;
+  if not exists (select 1 from perfis where user_id = auth.uid() and ia_habilitada) then
+    raise exception 'A IA automática não está liberada para o seu usuário. Fale com o administrador.';
+  end if;
+  select count(*) filter (where at > now() - interval '1 hour'),
+         count(*) filter (where at > now() - interval '1 day')
+    into n_hora, n_dia
+    from auditoria where user_id = auth.uid() and acao = 'ia.chamada' and at > now() - interval '1 day';
+  if n_hora >= 20 then raise exception 'Limite de 20 avaliações por IA por hora atingido. Tente mais tarde.'; end if;
+  if n_dia >= 80 then raise exception 'Limite de 80 avaliações por IA por dia atingido.'; end if;
+  perform auditar('ia.chamada', null, jsonb_build_object('caracteres', p_caracteres));
+  return jsonb_build_object('mascarar', coalesce((select valor = 'true'::jsonb from config where chave = 'iaMascarar'), true));
+end $$;
+
+revoke execute on function public.definir_ia(uuid, boolean) from public, anon;
+revoke execute on function public.autorizar_uso_ia(integer) from public, anon;
+grant execute on function public.definir_ia(uuid, boolean) to authenticated;
+grant execute on function public.autorizar_uso_ia(integer) to authenticated;
+grant select (ia_habilitada) on public.perfis to authenticated;

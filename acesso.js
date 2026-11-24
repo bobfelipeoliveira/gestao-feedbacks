@@ -156,7 +156,7 @@ function renderUsuarios(main){
     carregarUsuarios().then(renderApp).catch(()=>{});
     return;
   }
-  lista.appendChild(el("div", {class:"table-head table-usuarios"}, ["Usuário","Nome","Perfil","Situação","Criado em","Ações"].map(h=>el("div",{class:"th"},h))));
+  lista.appendChild(el("div", {class:"table-head table-usuarios"}, ["Usuário","Nome","Perfil","Situação","IA automática","Ações"].map(h=>el("div",{class:"th"},h))));
   for (const u of USUARIOS_CACHE){
     const souEu = u.id === USUARIO.id;
     const situacao = !u.active ? "🔒 Bloqueado" : u.mustChangePw ? "Aguardando 1º acesso" : "✅ Ativo";
@@ -165,13 +165,25 @@ function renderUsuarios(main){
       el("div", {class:"td"}, u.nome),
       el("div", {class:"td"}, u.role === "admin" ? "Administrador" : "Coordenador"),
       el("div", {class:"td"}, situacao),
-      el("div", {class:"td"}, u.createdAt ? fmtData(u.createdAt) : "—"),
+      el("div", {class:"td"}, [
+        el("span", {}, u.iaHabilitada ? "✨ Liberada " : "— "),
+        el("button", {class:"btn btn-ghost btn-sm", onclick:()=>alternarIA(u)}, u.iaHabilitada ? "Remover" : "Liberar IA"),
+      ]),
       el("div", {class:"td acoes-usuario"}, souEu ? el("span", {class:"muted"}, "(você)") : [
         el("button", {class:"btn btn-ghost btn-sm", onclick:()=>acaoUsuario(u, {active: !u.active}, u.active ? `Bloquear o acesso de ${u.username}? A pessoa sai do sistema na próxima ação.` : `Liberar o acesso de ${u.username}?`)}, u.active ? "Bloquear" : "Liberar acesso"),
         el("button", {class:"btn btn-ghost btn-sm", onclick:()=>acaoUsuario(u, {role: u.role === "admin" ? "coordenador" : "admin"}, u.role === "admin" ? `Remover o perfil de administrador de ${u.username}?` : `Tornar ${u.username} ADMINISTRADOR? A pessoa passará a ter os mesmos poderes que você.`)}, u.role === "admin" ? "Tornar coordenador" : "Tornar admin"),
       ]),
     ]));
   }
+}
+
+async function alternarIA(u){
+  const liberar = !u.iaHabilitada;
+  if (!confirm(liberar ? `Liberar a IA automática (Claude Opus 5.5, paga por uso) para ${u.username}?` : `Remover a IA automática de ${u.username}?`)) return;
+  try{
+    await salvarNoServidor(() => api("POST", "/api/ia/liberar", {id: u.id, valor: liberar}), "Não foi possível alterar a IA do usuário.");
+    await carregarUsuarios(); renderApp();
+  }catch(e){}
 }
 
 async function acaoUsuario(u, mudanca, confirmacao){
@@ -189,7 +201,7 @@ var ACAO_ROTULOS = {
   "senha.alterada":"Trocou a senha", "avaliacao.criada":"Registrou avaliação", "avaliacao.editada":"Editou avaliação", "avaliacao.excluida":"Excluiu avaliação",
   "audio.criado":"Cadastrou áudio", "colaborador.salvo":"Salvou colaborador", "backup.exportado":"Exportou backup",
   "backup.importado":"Importou backup", "config.alterada":"Alterou configurações", "usuario.criado":"Criou usuário",
-  "usuario.alterado":"Alterou usuário", "ia.chamada":"Usou a IA", "seed.usuarios":"Usuários iniciais criados",
+  "usuario.alterado":"Alterou usuário", "ia.chamada":"Usou a IA automática", "ia.liberada":"Liberou IA para", "ia.removida":"Removeu IA de", "seed.usuarios":"Usuários iniciais criados",
 };
 
 function renderAuditoria(main){
