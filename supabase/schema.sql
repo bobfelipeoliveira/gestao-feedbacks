@@ -266,6 +266,10 @@ begin
   if TG_TABLE_NAME = 'avaliacoes' and TG_OP = 'INSERT' then
     perform auditar(case when new.data ? 'importadaEm' then 'avaliacao.importada' else 'avaliacao.criada' end,
       new.id, jsonb_build_object('colaborador', new.data->>'colaboradorId', 'nota', new.data->'resultado'->'notaFinal'));
+  elsif TG_TABLE_NAME = 'avaliacoes' and TG_OP = 'UPDATE' then
+    perform auditar('avaliacao.editada', new.id, jsonb_build_object(
+      'colaborador', new.data->>'colaboradorId',
+      'notaAntes', old.data->'resultado'->'notaFinal', 'notaDepois', new.data->'resultado'->'notaFinal'));
   elsif TG_TABLE_NAME = 'avaliacoes' and TG_OP = 'DELETE' then
     perform auditar('avaliacao.excluida', old.id, jsonb_build_object(
       'colaborador', old.data->>'colaboradorId', 'data', old.data->>'dataMonitoria',
@@ -284,7 +288,7 @@ begin
 end $$;
 
 drop trigger if exists aud_avaliacoes on public.avaliacoes;
-create trigger aud_avaliacoes after insert or delete on public.avaliacoes for each row execute function public.trg_auditoria();
+create trigger aud_avaliacoes after insert or update or delete on public.avaliacoes for each row execute function public.trg_auditoria();
 drop trigger if exists aud_audios on public.audios;
 create trigger aud_audios after insert on public.audios for each row execute function public.trg_auditoria();
 drop trigger if exists aud_colab on public.colaboradores;
@@ -418,3 +422,72 @@ grant execute on function public.usuario_ok() to authenticated;
 grant execute on function public.eh_admin() to authenticated;
 grant execute on function public.coordenador_ve_todas() to authenticated;
 grant execute on function public.registrar_evento(text) to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 8. EDIÇÃO DE AVALIAÇÕES
+--    Admin edita qualquer avaliação; coordenador edita só as que ele fez.
+--    Exclusão continua exclusiva do admin.
+--    Cada edição: recalcula a nota, mantém o avaliador original, registra
+--    quem editou e a nota antes/depois, e guarda a versão anterior completa.
+-- ---------------------------------------------------------------------
+create table if not exists public.avaliacoes_versoes (
+  id             bigserial primary key,
+  avaliacao_id   text not null,
+  data_anterior  jsonb not null,
+  editado_por    uuid,
+  editado_em     timestamptz not null default now()
+);
+create index if not exists avaliacoes_versoes_aval on public.avaliacoes_versoes (avaliacao_id, editado_em desc);
+alter table public.avaliacoes_versoes enable row level security;
+revoke all on public.avaliacoes_versoes from anon;
+revoke insert, update, delete on public.avaliacoes_versoes from authenticated;
+grant select on public.avaliacoes_versoes to authenticated;
+drop policy if exists versoes_sel on public.avaliacoes_versoes;
+create policy versoes_sel on public.avaliacoes_versoes for select to authenticated using (eh_admin());
+
+create or replace function public.trg_avaliacao_upd() returns trigger
+language plpgsql security definer set search_path = public as $$
+declare
+  p perfis; link text; k text;
+  imutaveis constant text[] := array['supervisor','autorId','autorNome','registradaEm','importadaEm','importadaPor','criadaEm','finalizadaEm'];
+begin
+  select * into p from perfis where user_id = auth.uid();
+  link := link_seguro(new.data->>'linkAudio');
+  if link is null then raise exception 'O link do áudio precisa começar com https://'; end if;
+  if not exists (select 1 from colaboradores where id = new.data->>'colaboradorId') then
+    raise exception 'Selecione um colaborador válido.';
+  end if;
+
+  -- colunas e campos que ninguém pode alterar
+  new.id := old.id;
+  new.autor_id := old.autor_id;
+  new.created_at := old.created_at;
+  new.data := (new.data - 'edicoes' - 'editadaEm' - 'editadaPor' - 'resultado')
+    || jsonb_build_object('id', old.id, 'linkAudio', link, 'transcricao', '', 'finalizada', true);
+  foreach k in array imutaveis loop
+    if old.data ? k then new.data := new.data || jsonb_build_object(k, old.data->k);
+    else new.data := new.data - k; end if;
+  end loop;
+
+  new.data := new.data || jsonb_build_object('resultado', calcular_resultado(new.data));
+  new.data := new.data || jsonb_build_object(
+    'editadaEm', now(),
+    'editadaPor', p.nome,
+    'edicoes', coalesce(old.data->'edicoes', '[]'::jsonb) || jsonb_build_array(jsonb_build_object(
+      'por', p.nome, 'em', now(),
+      'notaAntes', old.data->'resultado'->'notaFinal',
+      'notaDepois', new.data->'resultado'->'notaFinal')));
+
+  insert into avaliacoes_versoes (avaliacao_id, data_anterior, editado_por) values (old.id, old.data, auth.uid());
+  return new;
+end $$;
+
+drop trigger if exists avaliacao_upd on public.avaliacoes;
+create trigger avaliacao_upd before update on public.avaliacoes
+  for each row execute function public.trg_avaliacao_upd();
+
+drop policy if exists aval_upd on public.avaliacoes;
+create policy aval_upd on public.avaliacoes for update to authenticated
+  using (eh_admin() or (usuario_ok() and autor_id = auth.uid()))
+  with check (eh_admin() or (usuario_ok() and autor_id = auth.uid()));
+grant update (data) on public.avaliacoes to authenticated;

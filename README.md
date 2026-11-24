@@ -19,7 +19,7 @@ pessoa não tem permissão para fazer.
 | Cadastrar/editar colaboradores | ✅ | ❌ |
 | Liberar/bloquear usuários, promover a admin | ✅ | ❌ |
 | Configurações, backup, auditoria | ✅ | ❌ |
-| Editar uma avaliação já registrada | ❌ (ninguém) | ❌ |
+| Editar avaliação (nota recalculada, edição registrada) | ✅ qualquer uma | ✅ só as que fez |
 
 ## Segurança implementada
 
@@ -27,7 +27,7 @@ pessoa não tem permissão para fazer.
 - **Todo usuário novo entra BLOQUEADO** até o administrador liberar (mesmo que alguém consiga se cadastrar).
 - **Troca obrigatória da senha inicial** no 1º acesso. Enquanto não troca, o banco não entrega nenhum dado.
 - A **nota é recalculada no banco** e o avaliador é carimbado pelo login: ninguém forja nota nem autoria.
-- Ninguém altera uma avaliação já registrada. Só o admin exclui, e a exclusão fica na auditoria.
+- Edições mantêm o avaliador original, recalculam a nota e registram quem editou e a nota antes → depois; a versão anterior completa fica guardada (só o admin consulta). Só o admin exclui, e a exclusão fica na auditoria.
 - Links de áudio só aceitam `https://` (bloqueia XSS).
 - Sessão some ao fechar o navegador, com logout automático após 60 min sem uso.
 - Auditoria de logins, avaliações, exclusões, colaboradores, configurações e usuários.

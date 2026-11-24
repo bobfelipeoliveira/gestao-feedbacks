@@ -82,6 +82,15 @@ async function apiSupabase(metodo, caminho, corpo){
       const r = ok(await SB.from("avaliacoes").insert({id: corpo.id, data: corpo}).select("data").single());
       return r.data;
     }
+    case "PUT /api/avaliacoes/:id": {
+      // o banco recalcula a nota, mantém o avaliador original e registra quem editou
+      const r = ok(await SB.from("avaliacoes").update({data: corpo}).eq("id", idParam).select("data"));
+      if (!r.length) throw new Error("Você não tem permissão para editar esta avaliação.");
+      return r[0].data;
+    }
+    case "GET /api/avaliacoes/:id/versoes": {
+      return ok(await SB.from("avaliacoes_versoes").select("data_anterior, editado_em").eq("avaliacao_id", idParam).order("editado_em", {ascending:false}));
+    }
     case "DELETE /api/avaliacoes/:id": {
       const r = ok(await SB.from("avaliacoes").delete().eq("id", idParam).select("id"));
       if (!r.length) throw new Error("Você não tem permissão para esta ação.");
@@ -565,7 +574,42 @@ function criteriosDaCategoria(cat){
   return CRITERIOS.filter(c => c.cat === cat);
 }
 
+var EDITANDO_ID = null;   // id da avaliação em edição (null = nova avaliação)
+
+function podeEditar(a){
+  if (!a || !USUARIO) return false;
+  return ehAdmin() || (!!a.autorId && a.autorId === USUARIO.id);
+}
+
+function iniciarEdicao(a){
+  if (!podeEditar(a)) return;
+  if (RASCUNHO && !confirm(EDITANDO_ID ? "Há outra edição em andamento que não foi salva. Descartar e editar esta avaliação?" : "Há uma nova avaliação em andamento que não foi salva. Descartar e editar esta avaliação?")) return;
+  RASCUNHO = JSON.parse(JSON.stringify(a));
+  RASCUNHO.criterios = RASCUNHO.criterios || {};
+  RASCUNHO.criteriosOrigem = RASCUNHO.criteriosOrigem || {};
+  RASCUNHO.portugues = RASCUNHO.portugues || {};
+  RASCUNHO.frases = RASCUNHO.frases || {};
+  RASCUNHO.feedback = RASCUNHO.feedback || {pontosFortes:"", oportunidades:"", planoDesenvolvimento:"", prazoNovaMonitoria:""};
+  RASCUNHO.rastreabilidade = RASCUNHO.rastreabilidade || {horaInicioEscuta:"", horaFimEscuta:"", status:"Em andamento"};
+  RASCUNHO.transcricao = "";
+  EDITANDO_ID = a.id;
+  WIZARD_STEP = 0;
+  CRITERIOS_MOSTRAR_PENDENTES = false;
+  IA_STATUS.erro = ""; IA_STATUS.carregando = false; IA_RESPOSTA_MANUAL = ""; IA_COPIADO = false;
+  iaLimparAudio();
+  irPara("nova-avaliacao");
+}
+
+function cancelarEdicao(){
+  if (!confirm("Descartar as alterações feitas nesta avaliação?")) return;
+  const id = EDITANDO_ID;
+  RASCUNHO = null; EDITANDO_ID = null;
+  iaLimparAudio();
+  irPara("avaliacao-detalhe", {id});
+}
+
 function iniciarNovaAvaliacao(){
+  EDITANDO_ID = null;
   RASCUNHO = novoRascunho();
   WIZARD_STEP = 0;
   CRITERIOS_MOSTRAR_PENDENTES = false;
@@ -592,7 +636,7 @@ function wizardAnterior(){
 
 function wizardIrParaEtapa(idx){
   // permite navegar apenas para etapas já visitadas (evita pular sem preencher)
-  if (idx <= WIZARD_STEP){
+  if (idx <= WIZARD_STEP || EDITANDO_ID){
     WIZARD_STEP = idx;
     renderApp();
     window.scrollTo(0,0);
@@ -608,7 +652,17 @@ async function finalizarAvaliacao(){
   envio.finalizada = true;
   envio.finalizadaEm = new Date().toISOString();
   try{
-    // o servidor recalcula a nota, registra o avaliador logado e devolve a avaliação oficial
+    if (EDITANDO_ID){
+      delete envio.finalizadaEm;
+      const salva = await salvarNoServidor(() => api("PUT", "/api/avaliacoes/" + encodeURIComponent(EDITANDO_ID), envio), "As alterações NÃO foram salvas. Seus dados continuam na tela; tente novamente.");
+      const idx = STATE.avaliacoes.findIndex(x => x.id === salva.id);
+      if (idx >= 0) STATE.avaliacoes[idx] = salva; else STATE.avaliacoes.push(salva);
+      iaLimparAudio();
+      RASCUNHO = null; EDITANDO_ID = null;
+      irPara("avaliacao-detalhe", {id: salva.id, recemEditada:true});
+      return;
+    }
+    // o banco recalcula a nota, registra o avaliador logado e devolve a avaliação oficial
     const salva = await salvarNoServidor(() => api("POST", "/api/avaliacoes", envio), "A avaliação NÃO foi salva. Seus dados continuam na tela; tente finalizar novamente.");
     STATE.avaliacoes.push(salva);
     iaLimparAudio();
@@ -640,6 +694,15 @@ function renderWizard(main){
 
   const step = WIZARD_STEPS[WIZARD_STEP];
   const wrap = el("div", {class:"page wizard-page" + (step.tipo === "criterios-todos" ? "" : " page-narrow")});
+  if (EDITANDO_ID){
+    wrap.appendChild(el("div", {class:"banner-edicao"}, [
+      el("span", {}, `✏️ Editando a avaliação de ${colaboradorNome(RASCUNHO.colaboradorId)} (${fmtData(RASCUNHO.dataMonitoria)}). Navegue pelas etapas clicando nas bolinhas; a nota é recalculada ao salvar.`),
+      el("div", {class:"form-actions", style:"margin:0"}, [
+        el("button", {class:"btn btn-ghost btn-sm", onclick: cancelarEdicao}, "Cancelar edição"),
+        el("button", {class:"btn btn-primary btn-sm", onclick: finalizarAvaliacao}, "Salvar alterações ✓"),
+      ]),
+    ]));
+  }
   wrap.appendChild(renderProgresso());
 
   let corpo;
@@ -671,7 +734,7 @@ function renderProgresso(){
       el("div", {class:"wizard-progress-fill", style:`width:${pct}%`}),
     ]),
     el("div", {class:"wizard-steps-dots"}, WIZARD_STEPS.map((s,i) => el("button", {
-      class: "wizard-dot" + (i === WIZARD_STEP ? " wizard-dot-active" : "") + (i < WIZARD_STEP ? " wizard-dot-done" : ""),
+      class: "wizard-dot" + (i === WIZARD_STEP ? " wizard-dot-active" : "") + ((i < WIZARD_STEP || EDITANDO_ID) && i !== WIZARD_STEP ? " wizard-dot-done" : ""),
       title: s.label,
       onclick: () => wizardIrParaEtapa(i),
     }))),
@@ -1492,7 +1555,7 @@ function telaFeedback(){
       cardFeedback("📅", "Prazo para nova monitoria", inputData(r.feedback.prazoNovaMonitoria, v => r.feedback.prazoNovaMonitoria = v)),
     ]),
   ], {
-    labelProximo: "Finalizar Avaliação ✓",
+    labelProximo: EDITANDO_ID ? "Salvar alterações ✓" : "Finalizar Avaliação ✓",
     onProximo: finalizarAvaliacao,
   });
 }
@@ -1579,7 +1642,11 @@ function linhaHistorico(a){
     el("div", {class:"td"}, el("span",{class:"pill", style:`background:${cor}22;color:${cor};border-color:${cor}55`}, a.resultado?fmtNota(a.resultado.notaFinal):"—")),
     el("div", {class:"td"}, a.resultado ? a.resultado.conceito : "—"),
     el("div", {class:"td"}, (a.rastreabilidade||{}).status || "—"),
-    el("div", {class:"td"}, el("button", {class:"btn btn-ghost btn-sm", onclick:()=>irPara("avaliacao-detalhe",{id:a.id})}, "👁 Visualizar")),
+    el("div", {class:"td acoes-linha"}, [
+      el("button", {class:"btn btn-ghost btn-sm", title:"Visualizar", onclick:()=>irPara("avaliacao-detalhe",{id:a.id})}, "👁"),
+      podeEditar(a) ? el("button", {class:"btn btn-ghost btn-sm", title:"Editar", onclick:()=>iniciarEdicao(a)}, "✏️") : null,
+      ehAdmin() ? el("button", {class:"btn btn-ghost btn-sm", title:"Excluir", onclick:()=>excluirAvaliacao(a, true)}, "🗑") : null,
+    ]),
   ]);
 }
 
@@ -1599,6 +1666,15 @@ function renderAvaliacaoDetalhe(main, id){
   if (ROUTE.params.recemCriada){
     page.appendChild(el("div", {class:"banner-sucesso"}, "✓ Avaliação finalizada e salva com sucesso."));
   }
+  if (ROUTE.params.recemEditada){
+    page.appendChild(el("div", {class:"banner-sucesso"}, "✓ Alterações salvas. A nota foi recalculada e a edição ficou registrada."));
+  }
+  if (podeEditar(a) || ehAdmin()){
+    page.appendChild(el("div", {class:"form-actions acoes-topo"}, [
+      podeEditar(a) ? el("button", {class:"btn btn-primary btn-sm", onclick:()=>iniciarEdicao(a)}, "✏️ Editar") : null,
+      ehAdmin() ? el("button", {class:"btn btn-danger-outline btn-sm", onclick:()=>excluirAvaliacao(a)}, "🗑 Excluir") : null,
+    ]));
+  }
   page.appendChild(el("div", {class:"report-card"}, [
     el("div", {class:"report-head"}, [
       el("div", {}, [
@@ -1612,6 +1688,7 @@ function renderAvaliacaoDetalhe(main, id){
     ]),
 
     a.autorNome ? el("div", {class:"muted", style:"margin:-6px 0 10px;"}, `Registrada no sistema por ${a.autorNome}${a.registradaEm ? " em " + fmtDataHora(a.registradaEm) : ""}`) : null,
+    (a.edicoes && a.edicoes.length) ? el("div", {class:"muted", style:"margin:-4px 0 10px;"}, `✏️ Editada ${a.edicoes.length} vez(es) — última por ${a.editadaPor || "—"} em ${fmtDataHora(a.editadaEm)}`) : null,
     secaoRelatorio("Dados da Ligação", [
       linhaInfo("Paciente", a.paciente), linhaInfo("Operadora", a.operadora),
       linhaInfo("Data/Hora da ligação", `${fmtData(a.dataLigacao)} ${a.horaLigacao||""}`),
@@ -1658,6 +1735,9 @@ function renderAvaliacaoDetalhe(main, id){
       linhaInfo("Prazo para nova monitoria", a.feedback && fmtData(a.feedback.prazoNovaMonitoria)),
     ]),
 
+    (a.edicoes && a.edicoes.length) ? secaoRelatorio("Histórico de alterações", a.edicoes.slice().reverse().map(e =>
+      linhaInfo(fmtDataHora(e.em), `${e.por || "—"} · nota ${fmtNota(e.notaAntes)} → ${fmtNota(e.notaDepois)}`))) : null,
+
     secaoRelatorio("Assinaturas", [
       el("div", {class:"assinaturas-grid"}, [
         blocoAssinatura(colaboradorNome(a.colaboradorId), "Colaborador"),
@@ -1667,19 +1747,21 @@ function renderAvaliacaoDetalhe(main, id){
 
     el("div", {class:"report-actions"}, [
       el("button", {class:"btn btn-ghost", onclick:()=>irPara("historico")}, "← Voltar ao histórico"),
+      podeEditar(a) ? el("button", {class:"btn btn-primary", onclick:()=>iniciarEdicao(a)}, "✏️ Editar avaliação") : null,
       ehAdmin() ? el("button", {class:"btn btn-danger-outline", onclick:()=>excluirAvaliacao(a)}, "🗑 Excluir avaliação") : null,
       el("button", {class:"btn btn-secondary", onclick:()=>window.print()}, "🖨 Imprimir / Salvar PDF"),
     ]),
   ]));
   main.appendChild(page);
 }
-async function excluirAvaliacao(a){
+async function excluirAvaliacao(a, ficarNaLista){
   if (!ehAdmin()) return;
-  if (!confirm(`Excluir definitivamente a avaliação de ${colaboradorNome(a.colaboradorId)} (${fmtData(a.dataMonitoria)})?\n\nA exclusão fica registrada na auditoria.`)) return;
+  if (!confirm(`Excluir definitivamente a avaliação de ${colaboradorNome(a.colaboradorId)} (${fmtData(a.dataMonitoria)}), nota ${a.resultado ? fmtNota(a.resultado.notaFinal) : "—"}?\n\nEsta ação não pode ser desfeita. A exclusão fica registrada na auditoria.`)) return;
   try{
     await salvarNoServidor(() => api("DELETE", "/api/avaliacoes/" + encodeURIComponent(a.id)), "Não foi possível excluir.");
     STATE.avaliacoes = STATE.avaliacoes.filter(x => x.id !== a.id);
-    irPara("historico");
+    if (EDITANDO_ID === a.id){ RASCUNHO = null; EDITANDO_ID = null; }
+    if (ficarNaLista) renderApp(); else irPara("historico");
   }catch(e){}
 }
 

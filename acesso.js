@@ -186,7 +186,7 @@ async function acaoUsuario(u, mudanca, confirmacao){
 var AUDITORIA_CACHE = null;
 var ACAO_ROTULOS = {
   "login":"Login", "login.negado":"Login negado (acesso bloqueado)", "logout":"Logout", "avaliacao.importada":"Importou avaliação",
-  "senha.alterada":"Trocou a senha", "avaliacao.criada":"Registrou avaliação", "avaliacao.excluida":"Excluiu avaliação",
+  "senha.alterada":"Trocou a senha", "avaliacao.criada":"Registrou avaliação", "avaliacao.editada":"Editou avaliação", "avaliacao.excluida":"Excluiu avaliação",
   "audio.criado":"Cadastrou áudio", "colaborador.salvo":"Salvou colaborador", "backup.exportado":"Exportou backup",
   "backup.importado":"Importou backup", "config.alterada":"Alterou configurações", "usuario.criado":"Criou usuário",
   "usuario.alterado":"Alterou usuário", "ia.chamada":"Usou a IA", "seed.usuarios":"Usuários iniciais criados",

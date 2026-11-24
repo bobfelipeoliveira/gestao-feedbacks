@@ -418,3 +418,11 @@ body.tem-dock{padding-bottom:70px;}
   .topbar-nav{display:flex !important; overflow-x:auto; flex-wrap:nowrap; width:100%;}
 }
 @media print{ .user-menu{display:none;} }
+
+/* ---- Edição de avaliações ---- */
+.banner-edicao{display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;
+  background:#E8874A14; border:1px solid #E8874A66; color:var(--primary-deep); border-radius:10px; padding:12px 16px; margin-bottom:14px; font-size:13.5px;}
+.acoes-linha{display:flex; gap:0; flex-wrap:nowrap; justify-content:flex-end;}
+.acoes-linha .btn{padding:4px 6px;}
+.acoes-topo{justify-content:flex-end; margin:0 0 10px;}
+@media print{ .acoes-topo, .acoes-linha, .banner-edicao{display:none !important;} }
