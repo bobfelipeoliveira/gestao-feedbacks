@@ -440,3 +440,4 @@ body.tem-dock{padding-bottom:70px;}
 .sim-nao-opcoes .choice-btn{min-width:72px; padding:8px 14px;}
 .marcar-todos{display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:10px 0 4px;}
 .ia-opcao-auto{border-color:var(--primary); background:var(--primary-soft);}
+.linha-desligado{opacity:.55;}

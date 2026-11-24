@@ -473,7 +473,7 @@ function renderHome(main){
       kpiCard("Avaliações realizadas", String(avals.length), "◎"),
       kpiCard("Nota média da equipe", mediaEquipe !== null ? mediaEquipe.toFixed(1) : "—", "★"),
       kpiCard("Monitorias pendentes", String(pendentes.length), "◷"),
-      kpiCard("Colaboradores elegíveis", String(STATE.colaboradores.filter(c=>c.elegivel).length), "◈"),
+      kpiCard("Colaboradores elegíveis", String(STATE.colaboradores.filter(avaliavel).length), "◈"),
     ]),
 
     el("div", {class:"section-title"}, "Acesso rápido"),
@@ -823,8 +823,14 @@ function textarea(valor, onChange, placeholder=""){
   t.addEventListener("input", (e) => onChange(e.target.value));
   return t;
 }
+/* Desligados saem das listas de avaliação, mas o histórico deles é preservado. */
+function naEquipe(c){ return c && c.status !== "Desligado"; }
+function avaliavel(c){ return naEquipe(c) && c.elegivel; }
+function ordenarColabs(lista){ return lista.slice().sort((a,b) => (naEquipe(b) - naEquipe(a)) || (a.nome||"").localeCompare(b.nome||"", "pt-BR")); }
+
 function selectColaborador(valor, onChange){
-  const elegiveis = STATE.colaboradores.filter(c => c.elegivel);
+  // mantém o colaborador atual na lista (ex.: ao editar avaliação antiga de alguém já desligado)
+  const elegiveis = STATE.colaboradores.filter(c => avaliavel(c) || c.id === valor);
   const s = el("select", {class:"input"}, [
     el("option", {value:""}, "Selecione..."),
     ...elegiveis.map(c => el("option", {value:c.id, selected: c.id===valor ? "selected" : undefined}, c.nome)),
@@ -1719,7 +1725,7 @@ function renderHistorico(main){
 function selectColaboradorFiltro(valor, onChange){
   const s = el("select", {class:"input"}, [
     el("option", {value:""}, "Todos"),
-    ...STATE.colaboradores.map(c => el("option", {value:c.id, selected:c.id===valor?"selected":undefined}, c.nome)),
+    ...ordenarColabs(STATE.colaboradores).map(c => el("option", {value:c.id, selected:c.id===valor?"selected":undefined}, c.nome + (naEquipe(c) ? "" : " (desligado)"))),
   ]);
   s.value = valor || "";
   s.addEventListener("change", e => onChange(e.target.value));
@@ -2120,7 +2126,7 @@ function renderColaboradoresLista(main){
     el("h1", {}, "Colaboradores"),
     el("p", {class:"page-sub"}, "Selecione um colaborador para ver a ficha individual completa."),
   ]));
-  const cards = STATE.colaboradores.map(c => {
+  const cardDe = c => {
     const avals = STATE.avaliacoes.filter(a => a.colaboradorId === c.id && a.resultado);
     const media = avals.length ? avals.reduce((s,a)=>s+a.resultado.notaFinal,0)/avals.length : null;
     return el("button", {class:"colab-card", onclick:()=>irPara("colaborador-detalhe",{id:c.id})}, [
@@ -2132,8 +2138,15 @@ function renderColaboradoresLista(main){
         !c.elegivel ? el("span", {class:"pill pill-muted"}, "Não elegível") : null,
       ]),
     ]);
-  });
-  page.appendChild(el("div", {class:"colab-grid"}, cards));
+  };
+  page.appendChild(el("div", {class:"colab-grid"}, ordenarColabs(STATE.colaboradores.filter(naEquipe)).map(cardDe)));
+  const desligados = STATE.colaboradores.filter(c => !naEquipe(c));
+  if (desligados.length){
+    page.appendChild(el("details", {style:"margin-top:24px"}, [
+      el("summary", {class:"section-title", style:"cursor:pointer"}, `Desligados (${desligados.length}) — histórico preservado`),
+      el("div", {class:"colab-grid", style:"margin-top:12px"}, ordenarColabs(desligados).map(cardDe)),
+    ]));
+  }
   main.appendChild(page);
 }
 
@@ -2342,9 +2355,9 @@ function renderRelatorios(main){
     secaoRelatorio("Resumo", [
       linhaInfo("Total de monitorias", String(avals.length)),
       linhaInfo("Nota média da equipe", media!==null?media.toFixed(1):"—"),
-      linhaInfo("Colaboradores elegíveis", String(STATE.colaboradores.filter(c=>c.elegivel).length)),
+      linhaInfo("Colaboradores elegíveis", String(STATE.colaboradores.filter(avaliavel).length)),
     ]),
-    secaoRelatorio("Nota média por colaborador", STATE.colaboradores.filter(c=>c.elegivel).map(c => {
+    secaoRelatorio("Nota média por colaborador", STATE.colaboradores.filter(avaliavel).map(c => {
       const das = avals.filter(a=>a.colaboradorId===c.id);
       const m = das.length ? das.reduce((s,a)=>s+a.resultado.notaFinal,0)/das.length : null;
       return linhaInfo(c.nome, m!==null ? `${m.toFixed(1)} (${das.length} monitoria(s))` : "sem monitorias");
@@ -2408,7 +2421,7 @@ function renderConfiguracoes(main){
     MOSTRAR_FORM_COLAB ? formColaborador() : null,
     el("div", {class:"table-card"}, [
       el("div", {class:"table-head"}, ["Nome","Função","Turno","Escala","Status","Elegível",""].map(h=>el("div",{class:"th"},h))),
-      ...STATE.colaboradores.map(c => el("div", {class:"table-row"}, [
+      ...ordenarColabs(STATE.colaboradores).map(c => el("div", {class:"table-row" + (naEquipe(c) ? "" : " linha-desligado")}, [
         el("div", {class:"td"}, c.nome),
         el("div", {class:"td"}, c.funcao),
         el("div", {class:"td"}, c.turno),
@@ -2458,7 +2471,7 @@ function formColaborador(){
       campo("Função", inputTexto(r.funcao, v=>r.funcao=v, "Ex.: Técnico de Enfermagem")),
       campo("Turno", selectSimples(["Diurno","Noturno","-"], r.turno, v=>r.turno=v)),
       campo("Escala", selectSimples(["Par","Ímpar","N/A","-"], r.escala, v=>r.escala=v)),
-      campo("Status", selectSimples(["Ativo","Férias","Afastamento"], r.status, v=>r.status=v)),
+      campo("Status", selectSimples(["Ativo","Férias","Afastamento","Desligado"], r.status, v=>{ r.status=v; if (v === "Desligado") r.elegivel = false; })),
       campo("Elegível para monitoria", selectSimples(["Sim","Não"], r.elegivel?"Sim":"Não", v=>r.elegivel = (v==="Sim"))),
     ]),
     el("div", {class:"form-actions"}, [
