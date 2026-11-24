@@ -105,9 +105,15 @@ end $$;
 create or replace function public.calcular_resultado(av jsonb) returns jsonb
 language plpgsql immutable as $$
 declare
-  crits constant text[] := array[
+  -- modelo 1 (avaliações antigas, 30 critérios) e modelo 2 (atual, 19 perguntas + B6 automático)
+  crits_v1 constant text[] := array[
     'A1','A2','A3','A4','B1','B2','B3','B4','B5','B6','B7','C1','C2','C3','C4','C5',
     'D1','D2','D3','D4','E1','E2','E3','E4','E5','F1','F2','F3','F4','F5'];
+  crits_v2 constant text[] := array[
+    'A1','A2','B1','B2','B3','B4','B5','B6','C1','C2','C3','C4','D1','D2','D3','E1','E2','E3','F1','F2'];
+  crits text[];
+  v2 boolean := coalesce(av->>'modelo', '1') = '2';
+  usou_frase boolean;
   c text; v text; n numeric;
   obt numeric := 0; maxp numeric := 0;
   s_cat jsonb := '{}'::jsonb;  -- {cat: [soma, count]}
@@ -115,8 +121,12 @@ declare
   k text; total numeric := 0; penal numeric; base numeric; final numeric;
   conceito text; cor text;
 begin
+  crits := case when v2 then crits_v2 else crits_v1 end;
+  usou_frase := coalesce((av->'frases'->>'outraFlag') = 'true', false)
+    or exists (select 1 from jsonb_each(coalesce(av->'frases', '{}'::jsonb)) e where e.key ~ '^[0-9]+$' and e.value = 'true'::jsonb);
   foreach c in array crits loop
     v := av->'criterios'->>c;
+    if v2 and c = 'B6' then v := case when usou_frase then '0' else '2' end; end if;
     if v is null or v = '' or v = 'NA' or v !~ '^[0-2](\.0+)?$' then continue; end if;
     n := v::numeric;
     obt := obt + n; maxp := maxp + 2;
@@ -191,6 +201,9 @@ begin
   end if;
   new.data := new.data
     || jsonb_build_object('id', new.id, 'linkAudio', link, 'transcricao', '', 'finalizada', true);
+  if not importada then
+    new.data := new.data || jsonb_build_object('modelo', 2);   -- novas avaliações sempre no modelo atual
+  end if;
   if importada then
     new.autor_id := null;
   else
@@ -449,7 +462,7 @@ create or replace function public.trg_avaliacao_upd() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
   p perfis; link text; k text;
-  imutaveis constant text[] := array['supervisor','autorId','autorNome','registradaEm','importadaEm','importadaPor','criadaEm','finalizadaEm'];
+  imutaveis constant text[] := array['supervisor','autorId','autorNome','registradaEm','importadaEm','importadaPor','criadaEm','finalizadaEm','modelo'];
 begin
   select * into p from perfis where user_id = auth.uid();
   link := link_seguro(new.data->>'linkAudio');

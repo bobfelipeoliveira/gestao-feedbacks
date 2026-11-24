@@ -3,7 +3,8 @@
    SISTEMA DE GESTÃO DE FEEDBACKS — MODELO DE DADOS E CRITÉRIOS
    ============================================================ */
 
-var CRITERIOS = [
+/* Modelo 1 (até nov/2026): 30 critérios. Mantido para as avaliações antigas — a nota delas não muda. */
+var CRITERIOS_V1 = [
   {cod:"A1",cat:"A",desc:"Utilizou corretamente o script inicial"},
   {cod:"A2",cat:"A",desc:"Apresentou-se corretamente (nome e setor)"},
   {cod:"A3",cat:"A",desc:"Confirmou nome completo do paciente"},
@@ -40,6 +41,59 @@ var CRITERIOS = [
   {cod:"F4",cat:"F",desc:"Segurança na fala"},
   {cod:"F5",cat:"F",desc:"Organização das informações"},
 ];
+
+/* Modelo 2 (atual): 19 perguntas + B6 automático (calculado a partir das frases proibidas). */
+var CRITERIOS_V2 = [
+  {cod:"A1",cat:"A",desc:"Seguiu o script de abertura (apresentou-se com nome e setor)"},
+  {cod:"A2",cat:"A",desc:"Confirmou 2 identificadores do paciente (nome completo + dado de segurança)"},
+
+  {cod:"B1",cat:"B",desc:"Descreveu fatos sem julgamento"},
+  {cod:"B2",cat:"B",desc:"Acolheu e validou o sentimento do familiar com empatia"},
+  {cod:"B3",cat:"B",desc:"Identificou claramente a necessidade do familiar"},
+  {cod:"B4",cat:"B",desc:"Utilizou escuta ativa"},
+  {cod:"B5",cat:"B",desc:"Quando a demanda não era da Intercorrência, orientou e direcionou corretamente"},
+  {cod:"B6",cat:"B",desc:"Evitou frases proibidas", auto:true},
+
+  {cod:"C1",cat:"C",desc:"Investigou o quadro atual e os sintomas associados"},
+  {cod:"C2",cat:"C",desc:"Solicitou sinais vitais quando pertinente"},
+  {cod:"C3",cat:"C",desc:"Investigou medidas já realizadas"},
+  {cod:"C4",cat:"C",desc:"Demonstrou compreensão da gravidade"},
+
+  {cod:"D1",cat:"D",desc:"Explicou claramente o fluxo"},
+  {cod:"D2",cat:"D",desc:"Ofereceu o recurso adequado (Telemedicina/TytoCare) quando indicado"},
+  {cod:"D3",cat:"D",desc:"Transmitiu segurança durante a condução"},
+
+  {cod:"E1",cat:"E",desc:"Garantiu a continuidade e orientou novo contato em caso de piora"},
+  {cod:"E2",cat:"E",desc:"Informou o número do protocolo"},
+  {cod:"E3",cat:"E",desc:"Encerrou confirmando dúvidas, com despedida acolhedora"},
+
+  {cod:"F1",cat:"F",desc:"Comunicação clara e organizada"},
+  {cod:"F2",cat:"F",desc:"Dicção e ritmo adequados"},
+];
+
+var MODELO_ATUAL = 2;
+var CRITERIOS = CRITERIOS_V2;   // modelo usado nas novas avaliações
+
+function modeloDe(av){ return (av && Number(av.modelo) === 2) ? 2 : 1; }
+function criteriosDe(av){ return modeloDe(av) === 2 ? CRITERIOS_V2 : CRITERIOS_V1; }
+/* Critérios que o avaliador responde (sem os automáticos). */
+function criteriosPerguntaDe(av){ return criteriosDe(av).filter(function(c){ return !c.auto; }); }
+
+function usouFraseProibida(av){
+  const f = (av && av.frases) || {};
+  if (f.outraFlag) return true;
+  for (const k of Object.keys(f)) if (/^\d+$/.test(k) && f[k] === true) return true;
+  return false;
+}
+/* Respostas efetivas: no modelo 2, B6 é derivado das frases proibidas. */
+function respostasEfetivas(av){
+  const r = Object.assign({}, (av && av.criterios) || {});
+  if (modeloDe(av) === 2){
+    for (const k of Object.keys(r)) if (!CRITERIOS_V2.some(function(c){ return c.cod === k && !c.auto; })) delete r[k];
+    r.B6 = usouFraseProibida(av) ? 0 : 2;
+  }
+  return r;
+}
 
 var CATEGORIAS = {
   A: "Abertura e Identificação",
@@ -106,9 +160,9 @@ function conceitoDe(nota){
 // avaliacao.criterios = { "A1": 2, "A2": 1, "A3": "NA", ... }
 // avaliacao.portugues  = { concordancia:0, pronomes:1, regencia:0, vocabulario:0, conjugacao:0 }
 
-function calcularSubnota(criteriosResp, cats){
+function calcularSubnota(criteriosResp, cats, lista){
   let soma = 0, count = 0;
-  for (const crit of CRITERIOS){
+  for (const crit of (lista || CRITERIOS_V1)){
     if (!cats.includes(crit.cat)) continue;
     const v = criteriosResp[crit.cod];
     if (v === undefined || v === null || v === "NA" || v === "") continue;
@@ -130,9 +184,10 @@ function calcularPenalizacaoPortugues(portuguesResp){
 }
 
 function calcularResultado(avaliacao){
-  const criteriosResp = avaliacao.criterios || {};
+  const lista = criteriosDe(avaliacao);
+  const criteriosResp = respostasEfetivas(avaliacao);
   let pontosObtidos = 0, pontosMax = 0;
-  for (const crit of CRITERIOS){
+  for (const crit of lista){
     const v = criteriosResp[crit.cod];
     if (v === undefined || v === null || v === "NA" || v === "") continue;
     const n = Number(v);
@@ -142,7 +197,7 @@ function calcularResultado(avaliacao){
   }
   const subnotas = {};
   for (const [chave, info] of Object.entries(SUBNOTA_MAP)){
-    subnotas[chave] = calcularSubnota(criteriosResp, info.cats);
+    subnotas[chave] = calcularSubnota(criteriosResp, info.cats, lista);
   }
   const totalDescontado = calcularPenalizacaoPortugues(avaliacao.portugues);
   const penalizacao = -totalDescontado; // positivo
@@ -163,16 +218,17 @@ function calcularResultado(avaliacao){
   };
 }
 
-function percentualPorCategoria(criteriosResp){
+function percentualPorCategoria(av){
   const out = {};
   for (const cat of CATEGORIA_ORDEM){
-    out[cat] = calcularSubnota(criteriosResp, [cat]);
+    out[cat] = calcularSubnota(respostasEfetivas(av), [cat], criteriosDe(av));
   }
   return out;
 }
 
 if (typeof module !== "undefined" && module.exports){
-  module.exports = { CRITERIOS, CATEGORIAS, CATEGORIA_ORDEM, SUBNOTA_MAP, PORTUGUES_CATEGORIAS, FRASES_PROIBIDAS,
+  module.exports = { CRITERIOS, CRITERIOS_V1, CRITERIOS_V2, MODELO_ATUAL, modeloDe, criteriosDe, criteriosPerguntaDe,
+    usouFraseProibida, respostasEfetivas, CATEGORIAS, CATEGORIA_ORDEM, SUBNOTA_MAP, PORTUGUES_CATEGORIAS, FRASES_PROIBIDAS,
     IMPACTO_OPCOES, CONCEITO_FAIXAS, STATUS_MONITORIA_OPCOES, conceitoDe, calcularSubnota,
     calcularPenalizacaoPortugues, calcularResultado, percentualPorCategoria };
 }

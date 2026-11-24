@@ -517,8 +517,8 @@ function linhaUltimaMonitoria(a){
 function novoRascunho(){
   return {
     id: gerarId("aval"),
+    modelo: MODELO_ATUAL,
     dataMonitoria: new Date().toISOString().slice(0,10),
-    horaMonitoria: "",
     supervisor: USUARIO ? USUARIO.nome : "",
     colaboradorId: "",
     equipe: "Intercorrência",
@@ -531,9 +531,7 @@ function novoRascunho(){
     ramal: "",
     linkAudio: "",
     rastreabilidade: {
-      horaInicioEscuta: "",
-      horaFimEscuta: "",
-      status: "Em andamento",
+      status: "Finalizada",
     },
     criterios: {},          // {"A1": 2, "A2": "NA", ...}
     criteriosOrigem: {},    // {"A1": "ia" | "ia-editado" | "manual"}
@@ -559,19 +557,13 @@ var CRITERIOS_MOSTRAR_PENDENTES = false; // filtro: mostrar só critérios ainda
 
 // cada categoria de critério é uma "etapa" própria no fluxo, conforme pedido
 var WIZARD_STEPS = [
-  {id:"ligacao",     label:"Dados da Ligação",        tipo:"form"},
-  {id:"rastreio",    label:"Rastreabilidade",          tipo:"form"},
-  {id:"ia",          label:"Transcrição e Sugestão IA", tipo:"form"},
-  {id:"criterios",   label:"Critérios de Avaliação",   tipo:"criterios-todos"},
-  {id:"portugues",   label:"Avaliação de Português",   tipo:"form"},
-  {id:"frases",      label:"Frases Proibidas",         tipo:"form"},
-  {id:"impacto",     label:"Impacto Assistencial",     tipo:"form"},
-  {id:"resultado",   label:"Resultado",                tipo:"form"},
-  {id:"feedback",    label:"Feedback",                 tipo:"form"},
+  {id:"ligacao",   label:"Dados da Ligação",      tipo:"form"},
+  {id:"avaliacao", label:"Avaliação",             tipo:"criterios-todos"},
+  {id:"resultado", label:"Resultado e Feedback",  tipo:"form"},
 ];
 
 function criteriosDaCategoria(cat){
-  return CRITERIOS.filter(c => c.cat === cat);
+  return criteriosPerguntaDe(RASCUNHO).filter(c => c.cat === cat);
 }
 
 var EDITANDO_ID = null;   // id da avaliação em edição (null = nova avaliação)
@@ -708,14 +700,8 @@ function renderWizard(main){
   let corpo;
   switch(step.id){
     case "ligacao": corpo = telaDadosLigacao(); break;
-    case "rastreio": corpo = telaRastreabilidade(); break;
-    case "portugues": corpo = telaPortugues(); break;
-    case "frases": corpo = telaFrasesProibidas(); break;
-    case "impacto": corpo = telaImpacto(); break;
-    case "resultado": corpo = telaResultado(); break;
-    case "feedback": corpo = telaFeedback(); break;
-    case "criterios": corpo = telaCriteriosTodos(); break;
-    case "ia": corpo = telaTranscricaoIA(); break;
+    case "avaliacao": corpo = telaAvaliacaoCompleta(); break;
+    case "resultado": corpo = el("div", {}, [telaResultado({semRodape:true}), telaFeedback()]); break;
   }
   wrap.appendChild(corpo);
   main.appendChild(wrap);
@@ -742,7 +728,7 @@ function renderProgresso(){
 }
 
 function wizardCard(titulo, subtitulo, conteudo, opts={}){
-  const footer = el("div", {class:"wizard-footer"}, [
+  const footer = opts.semRodape ? null : el("div", {class:"wizard-footer"}, [
     WIZARD_STEP > 0
       ? el("button", {class:"btn btn-ghost", onclick: wizardAnterior}, "← Voltar")
       : el("span"),
@@ -831,7 +817,6 @@ function telaDadosLigacao(){
   return wizardCard("Dados da Ligação", "Informações de identificação da monitoria e da chamada.", [
     el("div", {class:"field-grid"}, [
       campo("Data da monitoria", inputData(r.dataMonitoria, v => r.dataMonitoria = v)),
-      campo("Horário da monitoria", inputHora(r.horaMonitoria, v => r.horaMonitoria = v)),
       campo("Supervisor avaliador", el("input", {type:"text", class:"input", value: USUARIO ? USUARIO.nome : r.supervisor, disabled:"disabled"}), "Preenchido automaticamente com o usuário logado."),
       campo("Colaborador avaliado", selectColaborador(r.colaboradorId, v => r.colaboradorId = v)),
       campo("Operadora", inputTexto(r.operadora, v => r.operadora = v, "Ex.: Vivo, Claro, Oi")),
@@ -842,6 +827,7 @@ function telaDadosLigacao(){
       campo("Número do protocolo (opcional)", inputTexto(r.protocolo, v => r.protocolo = v)),
       campo("Ramal utilizado", inputTexto(r.ramal, v => r.ramal = v)),
       campo("Link do áudio", inputTextoChange(r.linkAudio, v => { r.linkAudio = v; renderApp(); }, "https://...")),
+      campo("Status da monitoria", selectSimples(STATUS_MONITORIA_OPCOES, (r.rastreabilidade||{}).status || "Finalizada", v => { r.rastreabilidade = r.rastreabilidade || {}; r.rastreabilidade.status = v; })),
     ]),
     temLink ? el("a", {class:"btn btn-secondary", href:linkOk, target:"_blank", rel:"noopener noreferrer"}, "▶ Ouvir Ligação")
             : ((r.linkAudio||"").trim() ? el("div", {class:"muted"}, "O link precisa começar com https://") : null),
@@ -849,26 +835,6 @@ function telaDadosLigacao(){
 }
 
 /* ---------------- Etapa: Rastreabilidade ---------------- */
-function calcularTempo(h1, h2){
-  if (!h1 || !h2) return null;
-  const [a1,b1] = h1.split(":").map(Number);
-  const [a2,b2] = h2.split(":").map(Number);
-  let min = (a2*60+b2) - (a1*60+b1);
-  if (min < 0) min += 24*60;
-  return String(Math.floor(min/60)).padStart(2,"0") + ":" + String(min%60).padStart(2,"0");
-}
-function telaRastreabilidade(){
-  const r = RASCUNHO;
-  const tempo = calcularTempo(r.rastreabilidade.horaInicioEscuta, r.rastreabilidade.horaFimEscuta);
-  return wizardCard("Rastreabilidade da Monitoria", "Garante o rastreio completo de quando e como a ligação foi ouvida.", [
-    el("div", {class:"field-grid"}, [
-      campo("Horário de início da escuta", inputHoraChange(r.rastreabilidade.horaInicioEscuta, v => { r.rastreabilidade.horaInicioEscuta = v; renderApp(); })),
-      campo("Horário de término da escuta", inputHoraChange(r.rastreabilidade.horaFimEscuta, v => { r.rastreabilidade.horaFimEscuta = v; renderApp(); })),
-      campo("Tempo gasto na monitoria", el("div", {class:"readonly-box"}, tempo || "—"), "Calculado automaticamente"),
-      campo("Status da monitoria", selectSimples(STATUS_MONITORIA_OPCOES, r.rastreabilidade.status, v => r.rastreabilidade.status = v)),
-    ]),
-  ]);
-}
 function selectSimples(opcoes, valor, onChange){
   const s = el("select", {class:"input"}, opcoes.map(o => el("option", {value:o, selected: o===valor?"selected":undefined}, o)));
   s.value = valor || opcoes[0];
@@ -997,7 +963,7 @@ function iaMascarar(texto){
 
 /* ---------------- Prompt ---------------- */
 function iaMontarSistema(){
-  var crit = CRITERIOS.map(function(c){ return c.cod + " (" + CATEGORIAS[c.cat] + "): " + c.desc; }).join("\n");
+  var crit = criteriosPerguntaDe(RASCUNHO).map(function(c){ return c.cod + " (" + CATEGORIAS[c.cat] + "): " + c.desc; }).join("\n");
   var frases = FRASES_PROIBIDAS.map(function(f,i){ return i + ": \"" + f + "\""; }).join("\n");
   var pt = PORTUGUES_CATEGORIAS.map(function(p){ return p.chave + ": " + p.nome; }).join("\n");
   var imp = IMPACTO_OPCOES.map(function(o){ return o.chave + ": " + o.label; }).join("\n");
@@ -1050,7 +1016,7 @@ function iaExtrairJSON(txt){
 function iaNormalizar(b){
   var out = {criterios:{}, frases:{usadas:[], trechos:{}, outraHouve:false, outraDesc:""}, portugues:{}, impacto:null, impactoJust:"", feedback:{}, observacoes:""};
   var crits = (b && b.criterios) || {};
-  CRITERIOS.forEach(function(c){
+  criteriosPerguntaDe(RASCUNHO).forEach(function(c){
     var x = crits[c.cod]; if (!x || typeof x !== "object") return;
     var v = x.valor;
     if (typeof v === "string" && /^n\/?a$/i.test(v.trim())) v = "NA";
@@ -1144,7 +1110,7 @@ function iaAceitarCriterio(cod){
 }
 function iaPendentesAceitaveis(){
   var r = RASCUNHO; if (!r.ia) return [];
-  return CRITERIOS.filter(function(c){
+  return criteriosPerguntaDe(RASCUNHO).filter(function(c){
     var s = r.ia.criterios[c.cod];
     return s && s.valor !== null && !s.requerEscuta && !criterioRespondido(r, c);
   }).map(function(c){ return c.cod; });
@@ -1189,7 +1155,7 @@ function blocoSugestaoCriterio(crit){
 }
 
 /* ---------------- Etapa: Transcrição e sugestão ---------------- */
-function telaTranscricaoIA(){
+function telaTranscricaoIA(opts){
   var r = RASCUNHO;
   var cfg = iaLerConfig();
   var palavras = iaContarPalavras(r.transcricao);
@@ -1255,7 +1221,7 @@ function telaTranscricaoIA(){
       ]),
     ]),
 
-  ]);
+  ], opts);
 }
 
 /* ---------------- Dicas de IA nas demais etapas ---------------- */
@@ -1335,10 +1301,11 @@ function criterioRespondido(r, crit){
 // Tela única com TODOS os critérios, agrupados por categoria — permite responder
 // em qualquer ordem, útil quando o avaliador ouve a ligação e as respostas
 // aparecem fora da ordem do questionário.
-function telaCriteriosTodos(){
+function telaCriteriosTodos(opts){
   const r = RASCUNHO;
-  const total = CRITERIOS.length;
-  const respondidos = CRITERIOS.filter(c => criterioRespondido(r, c)).length;
+  const perguntas = criteriosPerguntaDe(r);
+  const total = perguntas.length;
+  const respondidos = perguntas.filter(c => criterioRespondido(r, c)).length;
   const pct = total ? Math.round((respondidos/total)*100) : 0;
 
   const checkboxPendentes = el("input", {type:"checkbox"});
@@ -1360,6 +1327,10 @@ function telaCriteriosTodos(){
       el("span", {class:"crit-painel-contagem"}, `${respondidos} de ${total} critérios respondidos`),
       el("label", {class:"criterios-toggle-pendentes"}, [checkboxPendentes, el("span", {}, "Mostrar só pendentes")]),
     ]),
+    respondidos < total ? el("div", {class:"marcar-todos"}, [
+      el("button", {class:"btn btn-secondary btn-sm", onclick: marcarPendentesComoAtendeu}, `✓ Marcar os ${total - respondidos} pendentes como "Realizou completamente"`),
+      el("span", {class:"muted"}, "Depois, ajuste só o que falhou ou não se aplica."),
+    ]) : null,
     el("div", {class:"crit-painel-track"}, [
       el("div", {class:"crit-painel-fill", style:`width:${pct}%`}),
     ]),
@@ -1396,7 +1367,7 @@ function telaCriteriosTodos(){
 
   return wizardCard(
     "Critérios de Avaliação",
-    "Responda na ordem que preferir, conforme for ouvindo a ligação — não precisa seguir a sequência do questionário.",
+    modeloDe(r) === 2 ? "Responda na ordem que preferir, conforme for ouvindo a ligação. “Evitou frases proibidas” é calculado automaticamente pela seção de frases abaixo." : "Avaliação no modelo antigo (30 critérios), mantido para preservar a nota original.",
     [
       resumo,
       bannerIA,
@@ -1407,7 +1378,7 @@ function telaCriteriosTodos(){
             el("div", {class:"empty-icon"}, "✅"),
             el("p", {}, "Todos os critérios já foram respondidos."),
           ]),
-    ]
+    ], opts
   );
 }
 
@@ -1441,13 +1412,55 @@ function linhaCriterio(crit){
   ]);
 }
 /* ============================================================
-   WIZARD: PORTUGUÊS, FRASES PROIBIDAS, IMPACTO, RESULTADO, FEEDBACK
+   ETAPA ÚNICA DE AVALIAÇÃO: IA (opcional) + critérios + frases + português + impacto
    ============================================================ */
+var IA_PAINEL_ABERTO = false;
+function telaAvaliacaoCompleta(){
+  const r = RASCUNHO;
+  const painelIA = el("details", {class:"painel-ia"}, [
+    el("summary", {}, r.ia ? "🤖 Sugestão da IA carregada — clique para ver/refazer" : "🤖 Usar IA para sugerir as respostas (opcional)"),
+    telaTranscricaoIA({semRodape:true}),
+  ]);
+  if (IA_PAINEL_ABERTO) painelIA.setAttribute("open", "open");
+  painelIA.addEventListener("toggle", () => { IA_PAINEL_ABERTO = painelIA.open; });
+  return el("div", {}, [
+    painelIA,
+    telaCriteriosTodos({semRodape:true}),
+    telaFrasesProibidas({semRodape:true}),
+    telaPortugues({semRodape:true}),
+    telaImpacto({labelProximo:"Ver resultado →"}),
+  ]);
+}
 
-function telaPortugues(){
+function perguntaSimNao(pergunta, valorSim, onSim, onNao){
+  return el("div", {class:"sim-nao"}, [
+    el("span", {class:"sim-nao-pergunta"}, pergunta),
+    el("div", {class:"sim-nao-opcoes"}, [
+      el("button", {class:"choice-btn choice-btn-compact" + (!valorSim ? " choice-btn-selected choice-2" : ""), onclick:() => { onNao(); renderApp(); }}, "Não"),
+      el("button", {class:"choice-btn choice-btn-compact" + (valorSim ? " choice-btn-selected choice-0" : ""), onclick:() => { onSim(); renderApp(); }}, "Sim"),
+    ]),
+  ]);
+}
+
+/* Marca como "Realizou completamente" (2) todos os critérios ainda não respondidos. */
+function marcarPendentesComoAtendeu(){
+  const r = RASCUNHO;
+  const pend = criteriosPerguntaDe(r).filter(c => !criterioRespondido(r, c));
+  if (!pend.length) return;
+  for (const c of pend) setCriterio(c.cod, 2);
+  renderApp();
+}
+
+function telaPortugues(opts){
   const r = RASCUNHO;
   const total = calcularPenalizacaoPortugues(r.portugues);
-  return wizardCard("Avaliação de Português", "Registre a quantidade de ocorrências de cada tipo. O desconto é calculado automaticamente.", [
+  const temErro = r.portuguesHouve === true || total !== 0;
+  return wizardCard("Português", null, [
+    perguntaSimNao("Houve erro de português na ligação?", temErro,
+      () => { r.portuguesHouve = true; },
+      () => { r.portuguesHouve = false; r.portugues = {}; }),
+    !temErro ? null : el("div", {}, [
+    el("p", {class:"muted"}, "Registre a quantidade de ocorrências de cada tipo. O desconto é calculado automaticamente."),
     dicaPortuguesIA(),
     el("div", {class:"pt-table"}, PORTUGUES_CATEGORIAS.map(p => el("div", {class:"pt-row"}, [
       el("div", {class:"pt-nome"}, [p.nome, el("span", {class:"pt-peso"}, ` (${p.peso})`)]),
@@ -1457,13 +1470,20 @@ function telaPortugues(){
       el("span", {}, "Total descontado: "),
       el("strong", {}, `${total.toFixed(1)} pontos`),
     ]),
-  ]);
+    ]),
+  ], opts);
 }
 
-function telaFrasesProibidas(){
+function telaFrasesProibidas(opts){
   const r = RASCUNHO;
   if (r.frases.outraFlag === undefined) r.frases.outraFlag = false;
-  return wizardCard("Frases Proibidas", "Marque apenas as frases que foram utilizadas durante a ligação.", [
+  const usou = r.frases.houve === true || usouFraseProibida(r);
+  return wizardCard("Frases Proibidas", null, [
+    perguntaSimNao("O colaborador usou alguma frase proibida?", usou,
+      () => { r.frases.houve = true; },
+      () => { r.frases = {outraFlag:false, outraDesc:"", houve:false}; }),
+    !usou ? null : el("div", {}, [
+    el("p", {class:"muted"}, "Marque as frases que foram utilizadas." + (modeloDe(r) === 2 ? " Qualquer frase marcada zera o critério B6." : "")),
     dicaFrasesIA(),
     el("div", {class:"checklist"}, FRASES_PROIBIDAS.map((frase, i) => {
       const marcado = !!r.frases[i];
@@ -1483,10 +1503,11 @@ function telaFrasesProibidas(){
       el("span", {}, "Outra frase inadequada"),
     ]),
     r.frases.outraFlag ? campo("Descrição da frase", inputTexto(r.frases.outraDesc, v => r.frases.outraDesc = v, "Descreva o que foi dito")) : null,
-  ]);
+    ]),
+  ], opts);
 }
 
-function telaImpacto(){
+function telaImpacto(opts){
   const r = RASCUNHO;
   return wizardCard("Impacto Assistencial", "Classifique o potencial impacto da condução da ligação na segurança do paciente.", [
     dicaImpactoIA(),
@@ -1501,7 +1522,7 @@ function telaImpacto(){
         el("div", {class:"impacto-label"}, op.label),
       ]);
     })),
-  ]);
+  ], opts);
 }
 
 /* ---------------- Resultado ---------------- */
@@ -1517,7 +1538,7 @@ function barraCategoria(nome, valor){
   ]);
 }
 
-function telaResultado(){
+function telaResultado(opts){
   const r = RASCUNHO;
   const res = calcularResultado(r);
   r._resultadoPreview = res;
@@ -1540,7 +1561,7 @@ function telaResultado(){
       el("div", {}, [el("strong",{}, "Pontos obtidos: "), `${res.pontosObtidos} de ${res.pontosMax} pontos aplicáveis`]),
       r.ia ? (function(){ const o = iaResumoOrigem(r); return el("div", {}, [el("strong",{}, "Origem das respostas: "), `${o.ia} aceitas da IA · ${o["ia-editado"]} ajustadas por você · ${o.manual} manuais`]); })() : null,
     ]),
-  ]);
+  ], opts);
 }
 
 /* ---------------- Feedback ---------------- */
@@ -1550,8 +1571,8 @@ function telaFeedback(){
     dicaFeedbackIA(),
     el("div", {class:"feedback-cards"}, [
       cardFeedback("💪", "Pontos Fortes", textarea(r.feedback.pontosFortes, v => r.feedback.pontosFortes = v, "O que foi bem feito nesta ligação")),
-      cardFeedback("🎯", "Oportunidades de Melhoria", textarea(r.feedback.oportunidades, v => r.feedback.oportunidades = v, "O que pode evoluir")),
-      cardFeedback("📋", "Plano de Desenvolvimento", textarea(r.feedback.planoDesenvolvimento, v => r.feedback.planoDesenvolvimento = v, "Ações combinadas com o colaborador")),
+      cardFeedback("🎯", "Oportunidades e plano de ação", textarea(r.feedback.oportunidades, v => r.feedback.oportunidades = v, "O que pode evoluir e as ações combinadas com o colaborador")),
+      (r.feedback.planoDesenvolvimento || "").trim() ? cardFeedback("📋", "Plano de Desenvolvimento (registro anterior)", textarea(r.feedback.planoDesenvolvimento, v => r.feedback.planoDesenvolvimento = v, "")) : null,
       cardFeedback("📅", "Prazo para nova monitoria", inputData(r.feedback.prazoNovaMonitoria, v => r.feedback.prazoNovaMonitoria = v)),
     ]),
   ], {
@@ -1694,18 +1715,13 @@ function renderAvaliacaoDetalhe(main, id){
       linhaInfo("Data/Hora da ligação", `${fmtData(a.dataLigacao)} ${a.horaLigacao||""}`),
       linhaInfo("Duração", a.duracaoLigacao), linhaInfo("Protocolo", a.protocolo),
       linhaInfo("Ramal", a.ramal),
+      linhaInfo("Status", (a.rastreabilidade||{}).status),
     ]),
     urlSegura(a.linkAudio) ? el("a", {class:"btn btn-secondary", href:urlSegura(a.linkAudio), target:"_blank", rel:"noopener noreferrer"}, "▶ Ouvir Ligação") : null,
 
-    secaoRelatorio("Rastreabilidade", [
-      linhaInfo("Início da escuta", (a.rastreabilidade||{}).horaInicioEscuta),
-      linhaInfo("Término da escuta", (a.rastreabilidade||{}).horaFimEscuta),
-      linhaInfo("Status", (a.rastreabilidade||{}).status),
-    ]),
-
-    secaoRelatorio("Critérios avaliados", [
+    secaoRelatorio("Critérios avaliados" + (modeloDe(a) === 1 ? " (modelo antigo, 30 critérios)" : ""), [
       el("div", {class:"criterios-resumo"}, CATEGORIA_ORDEM.map(cat => {
-        const sub = calcularSubnota(a.criterios||{}, [cat]);
+        const sub = calcularSubnota(respostasEfetivas(a), [cat], criteriosDe(a));
         return el("div", {class:"criterio-resumo-linha"}, [
           el("span", {}, CATEGORIAS[cat]),
           el("span", {class:"criterio-resumo-valor"}, sub===null?"—":sub.toFixed(1)+"%"),
@@ -1730,8 +1746,8 @@ function renderAvaliacaoDetalhe(main, id){
 
     secaoRelatorio("Feedback", [
       linhaInfo("Pontos Fortes", a.feedback && a.feedback.pontosFortes),
-      linhaInfo("Oportunidades de Melhoria", a.feedback && a.feedback.oportunidades),
-      linhaInfo("Plano de Desenvolvimento", a.feedback && a.feedback.planoDesenvolvimento),
+      linhaInfo(modeloDe(a) === 2 ? "Oportunidades e plano de ação" : "Oportunidades de Melhoria", a.feedback && a.feedback.oportunidades),
+      (a.feedback && (a.feedback.planoDesenvolvimento||"").trim()) ? linhaInfo("Plano de Desenvolvimento", a.feedback.planoDesenvolvimento) : null,
       linhaInfo("Prazo para nova monitoria", a.feedback && fmtData(a.feedback.prazoNovaMonitoria)),
     ]),
 
@@ -1871,21 +1887,27 @@ function listaContagemCard(titulo, itens){
   ]);
 }
 
-/* ---------------- Agregações ---------------- */
-function criteriosMaisReprovados(avals, n){
-  const acc = {};
-  for (const crit of CRITERIOS) acc[crit.cod] = {soma:0,count:0};
+/* ---------------- Agregações ----------------
+   Cada avaliação usa os critérios do seu modelo (antigo: 30, atual: 19).
+   Agrupamos pela descrição do critério, para que itens idênticos nos dois modelos somem juntos. */
+function acumularCriterios(avals){
+  const acc = new Map();
   for (const a of avals){
-    for (const crit of CRITERIOS){
-      const v = (a.criterios||{})[crit.cod];
-      if (v === undefined || v === "NA" || v === null) continue;
-      acc[crit.cod].soma += Number(v); acc[crit.cod].count += 1;
+    const resp = respostasEfetivas(a);
+    for (const crit of criteriosDe(a)){
+      if (crit.auto) continue;
+      const v = resp[crit.cod];
+      if (v === undefined || v === "NA" || v === null || v === "") continue;
+      const chave = crit.desc;
+      if (!acc.has(chave)) acc.set(chave, {label: crit.desc + (modeloDe(a) === 1 && !CRITERIOS_V2.some(c => c.desc === crit.desc) ? " (modelo antigo)" : ""), soma:0, count:0});
+      const x = acc.get(chave); x.soma += Number(v); x.count += 1;
     }
   }
-  const linhas = CRITERIOS.map(c => ({
-    label: `${c.cod} — ${c.desc}`,
-    pct: acc[c.cod].count ? (acc[c.cod].soma/(acc[c.cod].count*2))*100 : null,
-  })).filter(l => l.pct !== null);
+  return acc;
+}
+
+function criteriosMaisReprovados(avals, n){
+  const linhas = [...acumularCriterios(avals).values()].map(x => ({label:x.label, pct: x.count ? (x.soma/(x.count*2))*100 : null})).filter(l => l.pct !== null);
   linhas.sort((a,b) => a.pct - b.pct);
   return linhas.slice(0,n).map(l => ({label:l.label, valor: l.pct.toFixed(0)+"%"}));
 }
@@ -1894,17 +1916,13 @@ function criteriosMaiorEvolucao(avals, n){
   const ordenadas = [...avals].sort((a,b) => new Date(a.dataMonitoria||0) - new Date(b.dataMonitoria||0));
   if (ordenadas.length < 4) return [];
   const meio = Math.floor(ordenadas.length/2);
-  const primeira = ordenadas.slice(0, meio), segunda = ordenadas.slice(meio);
-  function mediaCriterio(lista, cod){
-    let soma=0,count=0;
-    for (const a of lista){ const v=(a.criterios||{})[cod]; if (v===undefined||v==="NA"||v===null) continue; soma+=Number(v); count++; }
-    return count ? (soma/(count*2))*100 : null;
+  const p1 = acumularCriterios(ordenadas.slice(0, meio)), p2 = acumularCriterios(ordenadas.slice(meio));
+  const deltas = [];
+  for (const [chave, x] of p2){
+    const y = p1.get(chave);
+    if (!y || !y.count || !x.count) continue;
+    deltas.push({label: x.label, delta: (x.soma/(x.count*2))*100 - (y.soma/(y.count*2))*100});
   }
-  const deltas = CRITERIOS.map(c => {
-    const p = mediaCriterio(primeira, c.cod), s = mediaCriterio(segunda, c.cod);
-    if (p===null || s===null) return null;
-    return {label:`${c.cod} — ${c.desc}`, delta: s-p};
-  }).filter(Boolean);
   deltas.sort((a,b) => b.delta - a.delta);
   return deltas.slice(0,n).map(d => ({label:d.label, valor:(d.delta>=0?"+":"")+d.delta.toFixed(0)+" p.p."}));
 }
@@ -2120,9 +2138,10 @@ function percentualPorCategoriaAgregado(avals){
   for (const cat of CATEGORIA_ORDEM){
     let soma = 0, count = 0;
     for (const a of avals){
-      for (const crit of CRITERIOS){
+      const resp = respostasEfetivas(a);
+      for (const crit of criteriosDe(a)){
         if (crit.cat !== cat) continue;
-        const v = (a.criterios||{})[crit.cod];
+        const v = resp[crit.cod];
         if (v === undefined || v === null || v === "NA" || v === "") continue;
         const n = Number(v);
         if (!Number.isFinite(n)) continue;
