@@ -398,3 +398,23 @@ revoke insert, delete on public.config from authenticated;
 drop policy if exists aud_sel on public.auditoria;
 create policy aud_sel on public.auditoria for select to authenticated using (eh_admin());
 revoke insert, update, delete on public.auditoria from authenticated;
+
+-- ---------------------------------------------------------------------
+-- 7. Permissões explícitas (projetos novos do Supabase NÃO liberam
+--    tabelas automaticamente). As políticas RLS acima continuam
+--    decidindo QUAIS linhas cada usuário vê/altera.
+-- ---------------------------------------------------------------------
+grant usage on schema public to authenticated;
+
+grant select on public.perfis, public.colaboradores, public.avaliacoes,
+                public.audios, public.config, public.auditoria to authenticated;
+grant update (role, ativo, nome) on public.perfis to authenticated;
+grant insert, update on public.colaboradores to authenticated;
+grant insert, delete on public.avaliacoes to authenticated;
+grant insert, delete on public.audios to authenticated;
+grant update on public.config to authenticated;
+
+grant execute on function public.usuario_ok() to authenticated;
+grant execute on function public.eh_admin() to authenticated;
+grant execute on function public.coordenador_ve_todas() to authenticated;
+grant execute on function public.registrar_evento(text) to authenticated;
