@@ -670,3 +670,8 @@ create policy anot_del on public.anotacoes for delete to authenticated
 
 revoke execute on function public.supervisiona_anotacoes() from public, anon;
 grant execute on function public.supervisiona_anotacoes() to authenticated;
+
+-- ---------------------------------------------------------------------
+-- Fim: avisa a API do Supabase para enxergar tabelas/colunas novas na hora.
+-- ---------------------------------------------------------------------
+notify pgrst, 'reload schema';
