@@ -134,7 +134,8 @@ async function apiSupabase(metodo, caminho, corpo){
 
     /* ---------- acesso ---------- */
     case "POST /api/login": {
-      const username = String(corpo.username||"").trim().toLowerCase();
+      // aceita o login (nome.sobrenome) ou o e-mail completo
+      const username = String(corpo.username||"").trim().toLowerCase().split("@")[0];
       if (!/^[a-z][a-z0-9._-]{1,60}$/.test(username)) throw new Error("Usuário ou senha inválidos.");
       const r = await SB.auth.signInWithPassword({email: username + "@" + SGF_CONFIG.dominioLogin, password: String(corpo.senha||"")});
       if (r.error){
