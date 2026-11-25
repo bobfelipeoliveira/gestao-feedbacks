@@ -548,3 +548,125 @@ revoke execute on function public.autorizar_uso_ia(integer) from public, anon;
 grant execute on function public.definir_ia(uuid, boolean) to authenticated;
 grant execute on function public.autorizar_uso_ia(integer) to authenticated;
 grant select (ia_habilitada) on public.perfis to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 10. MEU ACOMPANHAMENTO INDIVIDUAL — anotações PRIVADAS por avaliador
+--
+--  * Cada anotação pertence ao login que a escreveu (autor_id = auth.uid()).
+--  * Avaliador comum: vê, cria, edita e exclui SOMENTE as próprias.
+--  * Supervisor (permissão especial 'supervisionar_anotacoes'): vê, edita e
+--    exclui todas. Essa permissão fica numa tabela SEM acesso pela API:
+--    só muda pelo SQL Editor do Supabase. Nem um admin promovido pela tela
+--    de Usuários consegue se dar essa permissão.
+--  * Nada disso altera avaliações, notas ou resultados.
+-- ---------------------------------------------------------------------
+create table if not exists public.permissoes_especiais (
+  user_id    uuid not null references auth.users(id) on delete cascade,
+  permissao  text not null check (permissao in ('supervisionar_anotacoes')),
+  concedida_em timestamptz not null default now(),
+  primary key (user_id, permissao)
+);
+alter table public.permissoes_especiais enable row level security;
+revoke all on public.permissoes_especiais from public, anon, authenticated;
+-- (sem políticas: nenhum usuário do sistema lê ou altera esta tabela pela API)
+
+-- Primeira instalação: concede a supervisão a quem é administrador hoje.
+-- Ao rodar o arquivo de novo, NÃO concede a novos admins (isso é manual, de propósito).
+insert into public.permissoes_especiais (user_id, permissao)
+select user_id, 'supervisionar_anotacoes' from public.perfis
+where role = 'admin' and ativo
+  and not exists (select 1 from public.permissoes_especiais where permissao = 'supervisionar_anotacoes');
+
+create or replace function public.supervisiona_anotacoes() returns boolean
+language sql stable security definer set search_path = public as $$
+  select usuario_ok() and exists (
+    select 1 from permissoes_especiais where user_id = auth.uid() and permissao = 'supervisionar_anotacoes');
+$$;
+
+create table if not exists public.anotacoes (
+  id              uuid primary key default gen_random_uuid(),
+  autor_id        uuid not null default auth.uid() references auth.users(id) on delete cascade,
+  autor_username  text not null default '',
+  colaborador_id  text not null references public.colaboradores(id) on delete cascade,
+  texto           text not null check (char_length(btrim(texto)) between 1 and 20000),
+  criado_em       timestamptz not null default now(),
+  editado_em      timestamptz,
+  editado_por     text
+);
+create index if not exists anotacoes_autor_colab on public.anotacoes (autor_id, colaborador_id, criado_em desc);
+create index if not exists anotacoes_colab on public.anotacoes (colaborador_id, criado_em desc);
+
+-- Carimbos feitos pelo BANCO (o navegador não escolhe autor, data nem id)
+create or replace function public.trg_anotacao_ins() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is null then raise exception 'não autenticado'; end if;
+  new.id := gen_random_uuid();
+  new.autor_id := auth.uid();
+  new.autor_username := coalesce((select username from perfis where user_id = auth.uid()), '');
+  new.criado_em := now();
+  new.editado_em := null;
+  new.editado_por := null;
+  new.texto := btrim(new.texto);
+  return new;
+end $$;
+drop trigger if exists anotacao_ins on public.anotacoes;
+create trigger anotacao_ins before insert on public.anotacoes
+  for each row execute function public.trg_anotacao_ins();
+
+create or replace function public.trg_anotacao_upd() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  -- só o texto pode mudar; autor, colaborador e data de criação são imutáveis
+  new.id := old.id;
+  new.autor_id := old.autor_id;
+  new.autor_username := old.autor_username;
+  new.colaborador_id := old.colaborador_id;
+  new.criado_em := old.criado_em;
+  new.texto := btrim(new.texto);
+  new.editado_em := now();
+  new.editado_por := coalesce((select username from perfis where user_id = auth.uid()), '');
+  -- supervisor mexendo em anotação de outra pessoa fica registrado (sem o conteúdo)
+  if auth.uid() is distinct from old.autor_id then
+    perform auditar('anotacao.editada_supervisor', old.autor_username, jsonb_build_object('colaborador', old.colaborador_id));
+  end if;
+  return new;
+end $$;
+drop trigger if exists anotacao_upd on public.anotacoes;
+create trigger anotacao_upd before update on public.anotacoes
+  for each row execute function public.trg_anotacao_upd();
+
+create or replace function public.trg_anotacao_del() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if auth.uid() is distinct from old.autor_id and auth.uid() is not null then
+    perform auditar('anotacao.excluida_supervisor', old.autor_username, jsonb_build_object('colaborador', old.colaborador_id));
+  end if;
+  return old;
+end $$;
+drop trigger if exists anotacao_del on public.anotacoes;
+create trigger anotacao_del after delete on public.anotacoes
+  for each row execute function public.trg_anotacao_del();
+
+alter table public.anotacoes enable row level security;
+revoke all on public.anotacoes from public, anon, authenticated;
+grant select, delete on public.anotacoes to authenticated;
+grant insert (colaborador_id, texto) on public.anotacoes to authenticated;  -- id/autor/datas: só o banco define
+grant update (texto) on public.anotacoes to authenticated;
+
+drop policy if exists anot_sel on public.anotacoes;
+create policy anot_sel on public.anotacoes for select to authenticated
+  using ((autor_id = auth.uid() and usuario_ok()) or supervisiona_anotacoes());
+drop policy if exists anot_ins on public.anotacoes;
+create policy anot_ins on public.anotacoes for insert to authenticated
+  with check (autor_id = auth.uid() and usuario_ok());
+drop policy if exists anot_upd on public.anotacoes;
+create policy anot_upd on public.anotacoes for update to authenticated
+  using ((autor_id = auth.uid() and usuario_ok()) or supervisiona_anotacoes())
+  with check ((autor_id = auth.uid() and usuario_ok()) or supervisiona_anotacoes());
+drop policy if exists anot_del on public.anotacoes;
+create policy anot_del on public.anotacoes for delete to authenticated
+  using ((autor_id = auth.uid() and usuario_ok()) or supervisiona_anotacoes());
+
+revoke execute on function public.supervisiona_anotacoes() from public, anon;
+grant execute on function public.supervisiona_anotacoes() to authenticated;

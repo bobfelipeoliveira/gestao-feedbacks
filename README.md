@@ -86,6 +86,27 @@ update perfis set role = 'admin', ativo = true where username = 'seu.login';
 
 ---
 
+## Meu Acompanhamento (anotações privadas)
+
+Caderno particular de cada avaliador sobre cada colaborador, separado das avaliações formais.
+
+- Cada anotação pertence ao login de quem escreveu. **Avaliadores só veem, editam e excluem as próprias**,
+  inclusive em consultas diretas ao banco: a regra está no banco (RLS, seção 10 do `schema.sql`), não na tela.
+- **Supervisão:** quem tem a permissão especial `supervisionar_anotacoes` vê, edita e exclui todas. Ela fica
+  numa tabela sem acesso pela API: **não é concedida pela tela de Usuários** (promover alguém a admin não dá acesso
+  às anotações). Na primeira instalação ela vai para o(s) admin(s) daquele momento. Para conceder ou retirar depois,
+  use o SQL Editor:
+  ```sql
+  -- conceder
+  insert into permissoes_especiais (user_id, permissao)
+  select user_id, 'supervisionar_anotacoes' from perfis where username = 'login.da.pessoa';
+  -- retirar
+  delete from permissoes_especiais p using perfis f
+  where p.user_id = f.user_id and f.username = 'login.da.pessoa' and p.permissao = 'supervisionar_anotacoes';
+  ```
+- Edições e exclusões feitas pelo supervisor em anotações de outra pessoa ficam na Auditoria (sem o conteúdo).
+- As anotações **não entram** no "Exportar Backup".
+
 ## IA automática (opcional, paga por uso)
 
 A sugestão automática usa o **Claude Opus 5.5** por uma Edge Function do Supabase

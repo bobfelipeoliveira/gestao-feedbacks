@@ -210,6 +210,39 @@ async function apiSupabase(metodo, caminho, corpo){
       }
       return r.data;
     }
+    /* ---------- Meu Acompanhamento (privacidade garantida por RLS no banco) ---------- */
+    case "GET /api/anotacoes/contexto": {
+      const sup = await SB.rpc("supervisiona_anotacoes");
+      return {supervisor: !sup.error && sup.data === true};
+    }
+    case "GET /api/anotacoes/minhas-contagem": {
+      const r = ok(await SB.from("anotacoes").select("colaborador_id").eq("autor_id", USUARIO.id).limit(5000));
+      const cont = {}; for (const x of r) cont[x.colaborador_id] = (cont[x.colaborador_id] || 0) + 1;
+      return cont;
+    }
+    case "POST /api/anotacoes/listar": {
+      const COLS = "id, autor_id, autor_username, colaborador_id, texto, criado_em, editado_em, editado_por";
+      let q = SB.from("anotacoes").select(COLS).order("criado_em", {ascending:false});
+      // "minhas": mesmo para o supervisor, filtra pelo próprio login
+      if (corpo.escopo !== "todas") q = q.eq("autor_id", USUARIO.id);
+      if (corpo.colaboradorId) q = q.eq("colaborador_id", corpo.colaboradorId);
+      if (corpo.autor) q = q.eq("autor_username", corpo.autor);
+      return ok(await q.limit(1000));
+    }
+    case "POST /api/anotacoes": {
+      return ok(await SB.from("anotacoes").insert({colaborador_id: corpo.colaboradorId, texto: corpo.texto})
+        .select("id, autor_id, autor_username, colaborador_id, texto, criado_em, editado_em, editado_por").single());
+    }
+    case "POST /api/anotacoes/editar": {
+      const r = ok(await SB.from("anotacoes").update({texto: corpo.texto}).eq("id", corpo.id).select("id"));
+      if (!r.length) throw new Error("Você não tem permissão para editar esta anotação.");
+      return {ok:true};
+    }
+    case "POST /api/anotacoes/excluir": {
+      const r = ok(await SB.from("anotacoes").delete().eq("id", corpo.id).select("id"));
+      if (!r.length) throw new Error("Você não tem permissão para excluir esta anotação.");
+      return {ok:true};
+    }
     case "GET /api/auditoria": {
       const r = ok(await SB.from("auditoria").select("at, username, acao, alvo, detalhes").order("at", {ascending:false}).limit(500));
       return {eventos: r};
@@ -397,6 +430,7 @@ function renderApp(){
       navBtn("colaboradores","Colaboradores"),
       navBtn("banco-audios","Banco de Áudios"),
       navBtn("relatorios","Relatórios"),
+      navBtn("acompanhamento","Meu Acompanhamento"),
       ehAdmin() ? navBtn("usuarios","Usuários") : null,
       ehAdmin() ? navBtn("auditoria","Auditoria") : null,
       ehAdmin() ? navBtn("configuracoes","Configurações") : null,
@@ -449,6 +483,7 @@ function renderView(main){
     case "usuarios": return ehAdmin() ? renderUsuarios(main) : renderSemPermissao(main);
     case "auditoria": return ehAdmin() ? renderAuditoria(main) : renderSemPermissao(main);
     case "minha-senha": return renderMinhaSenha(main);
+    case "acompanhamento": return renderAcompanhamento(main);
     default: return renderHome(main);
   }
 }
