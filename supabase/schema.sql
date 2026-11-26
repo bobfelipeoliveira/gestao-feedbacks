@@ -104,8 +104,12 @@ end $$;
 -- ---------------------------------------------------------------------
 create or replace function public.calcular_resultado(av jsonb) returns jsonb
 language plpgsql immutable as $$
+-- REGRA DA NOTA (regra 2, desde 26/11/2026 — mesma de regras.js):
+--   começa em 100; cada item vale 100 ÷ nº de itens (atual: 20 itens = 5 pontos);
+--   parcial (1) perde metade do valor; não realizou (0) perde o valor inteiro;
+--   N/A e realizou (2) não perdem; depois subtrai os descontos de português;
+--   mínimo 0, 1 casa decimal. Sem nenhuma pergunta respondida = 0.
 declare
-  -- modelo 1 (avaliações antigas, 30 critérios) e modelo 2 (atual, 19 perguntas + B6 automático)
   crits_v1 constant text[] := array[
     'A1','A2','A3','A4','B1','B2','B3','B4','B5','B6','B7','C1','C2','C3','C4','C5',
     'D1','D2','D3','D4','E1','E2','E3','E4','E5','F1','F2','F3','F4','F5'];
@@ -114,26 +118,39 @@ declare
   crits text[];
   v2 boolean := coalesce(av->>'modelo', '1') = '2';
   usou_frase boolean;
-  c text; v text; n numeric;
-  obt numeric := 0; maxp numeric := 0;
-  s_cat jsonb := '{}'::jsonb;  -- {cat: [soma, count]}
+  c text; v text; perda numeric; resp boolean;
+  n_itens int; valor numeric;
+  nao_realizados int := 0; parciais int := 0; itens_na int := 0; em_branco int := 0; perguntas int := 0;
+  desconto numeric; s_cat jsonb := '{}'::jsonb;  -- {cat: [perda, itens, respondidos]}
   pesos constant jsonb := '{"concordancia":-2,"pronomes":-1,"regencia":-1.5,"vocabulario":-1,"conjugacao":-2}';
-  k text; total numeric := 0; penal numeric; base numeric; final numeric;
+  k text; n numeric; total numeric := 0; penal numeric; final numeric;
   conceito text; cor text;
 begin
   crits := case when v2 then crits_v2 else crits_v1 end;
+  n_itens := array_length(crits, 1);
+  valor := 100.0 / n_itens;
   usou_frase := coalesce((av->'frases'->>'outraFlag') = 'true', false)
     or exists (select 1 from jsonb_each(coalesce(av->'frases', '{}'::jsonb)) e where e.key ~ '^[0-9]+$' and e.value = 'true'::jsonb);
   foreach c in array crits loop
     v := av->'criterios'->>c;
     if v2 and c = 'B6' then v := case when usou_frase then '0' else '2' end; end if;
-    if v is null or v = '' or v = 'NA' or v !~ '^[0-2](\.0+)?$' then continue; end if;
-    n := v::numeric;
-    obt := obt + n; maxp := maxp + 2;
+    perda := 0; resp := false;
+    if v is null or v = '' then
+      em_branco := em_branco + 1;
+    elsif v = 'NA' then
+      itens_na := itens_na + 1; resp := true;
+    elsif v ~ '^0(\.0+)?$' then nao_realizados := nao_realizados + 1; perda := 1; resp := true;
+    elsif v ~ '^1(\.0+)?$' then parciais := parciais + 1; perda := 0.5; resp := true;
+    elsif v ~ '^2(\.0+)?$' then resp := true;
+    else em_branco := em_branco + 1;
+    end if;
+    if resp and not (v2 and c = 'B6') then perguntas := perguntas + 1; end if;
     s_cat := jsonb_set(s_cat, array[left(c,1)], to_jsonb(array[
-      coalesce((s_cat->left(c,1)->>0)::numeric, 0) + n,
-      coalesce((s_cat->left(c,1)->>1)::numeric, 0) + 1]));
+      coalesce((s_cat->left(c,1)->>0)::numeric, 0) + perda,
+      coalesce((s_cat->left(c,1)->>1)::numeric, 0) + 1,
+      coalesce((s_cat->left(c,1)->>2)::numeric, 0) + case when resp then 1 else 0 end]));
   end loop;
+  desconto := (nao_realizados + parciais * 0.5) * valor;
 
   for k in select jsonb_object_keys(pesos) loop
     n := coalesce(nullif(av->'portugues'->>k, ''), '0')::numeric;
@@ -142,8 +159,7 @@ begin
   end loop;
   total := round(total * 10) / 10;
   penal := -total;
-  base := case when maxp > 0 then obt / maxp * 100 else 0 end;
-  final := greatest(0, round((base - penal) * 10) / 10);
+  final := case when perguntas = 0 then 0 else greatest(0, round((100 - desconto - penal) * 10) / 10) end;
 
   if final >= 95 then conceito := 'Excelente'; cor := '#1F9254';
   elsif final >= 90 then conceito := 'Muito Bom'; cor := '#2E6FD9';
@@ -153,7 +169,12 @@ begin
   end if;
 
   return jsonb_build_object(
-    'pontosObtidos', obt, 'pontosMax', maxp,
+    'regra', 2,
+    'itensTotal', n_itens,
+    'valorItem', round(valor, 2),
+    'naoRealizados', nao_realizados, 'parciais', parciais, 'itensNA', itens_na, 'emBranco', em_branco,
+    'descontoItens', round(desconto, 1),
+    'notaItens', round(100 - desconto, 1),
     'notaTecnica',     public.subnota(s_cat, array['C']),
     'notaComunicacao', public.subnota(s_cat, array['F']),
     'notaHumanizacao', public.subnota(s_cat, array['B']),
@@ -167,15 +188,24 @@ end $$;
 
 create or replace function public.subnota(s_cat jsonb, cats text[]) returns numeric
 language plpgsql immutable as $$
-declare c text; soma numeric := 0; cnt numeric := 0;
+declare c text; perda numeric := 0; itens numeric := 0; resp numeric := 0;
 begin
   foreach c in array cats loop
-    soma := soma + coalesce((s_cat->c->>0)::numeric, 0);
-    cnt  := cnt  + coalesce((s_cat->c->>1)::numeric, 0);
+    perda := perda + coalesce((s_cat->c->>0)::numeric, 0);
+    itens := itens + coalesce((s_cat->c->>1)::numeric, 0);
+    resp  := resp  + coalesce((s_cat->c->>2)::numeric, 0);
   end loop;
-  if cnt = 0 then return null; end if;
-  return round(round(soma / (cnt * 2) * 1000) / 10, 1);
+  if itens = 0 or resp = 0 then return null; end if;
+  return round(round((1 - perda / itens) * 1000) / 10, 1);
 end $$;
+
+-- Perguntas do modelo atual (19, sem o B6 automático) sem resposta.
+create or replace function public.perguntas_sem_resposta(av jsonb) returns int
+language sql immutable as $$
+  select count(*)::int from unnest(array['A1','A2','B1','B2','B3','B4','B5','C1','C2','C3','C4',
+    'D1','D2','D3','E1','E2','E3','F1','F2']) as c
+  where coalesce(av->'criterios'->>c, '') !~ '^(NA|[0-2](\.0+)?)$';
+$$;
 
 -- link de áudio: só http(s) — impede "javascript:" (XSS)
 create or replace function public.link_seguro(u text) returns text
@@ -206,6 +236,9 @@ begin
       -- turno e função do colaborador NA DATA da avaliação (dashboard por turno)
       || coalesce((select jsonb_build_object('turnoColaborador', c.data->'turno', 'funcaoColaborador', c.data->'funcao')
                    from colaboradores c where c.id = new.data->>'colaboradorId'), '{}'::jsonb);
+  end if;
+  if not importada and perguntas_sem_resposta(new.data) > 0 then
+    raise exception 'Responda todos os itens da avaliação antes de finalizar (faltam %).', perguntas_sem_resposta(new.data);
   end if;
   if importada then
     new.autor_id := null;
@@ -282,6 +315,8 @@ begin
   if TG_TABLE_NAME = 'avaliacoes' and TG_OP = 'INSERT' then
     perform auditar(case when new.data ? 'importadaEm' then 'avaliacao.importada' else 'avaliacao.criada' end,
       new.id, jsonb_build_object('colaborador', new.data->>'colaboradorId', 'nota', new.data->'resultado'->'notaFinal'));
+  elsif TG_TABLE_NAME = 'avaliacoes' and TG_OP = 'UPDATE' and current_setting('sgf.recalculo', true) = 'on' then
+    null;  -- recálculo em lote: auditado uma única vez, no bloco RECÁLCULO
   elsif TG_TABLE_NAME = 'avaliacoes' and TG_OP = 'UPDATE' then
     perform auditar('avaliacao.editada', new.id, jsonb_build_object(
       'colaborador', new.data->>'colaboradorId',
@@ -467,6 +502,12 @@ declare
   p perfis; link text; k text;
   imutaveis constant text[] := array['supervisor','autorId','autorNome','registradaEm','importadaEm','importadaPor','criadaEm','finalizadaEm','modelo','turnoColaborador','funcaoColaborador'];
 begin
+  -- Recálculo administrativo das notas (bloco "RECÁLCULO" no fim deste arquivo):
+  -- só roda pelo SQL Editor (sem login de usuário) e só troca o resultado.
+  if auth.uid() is null and current_setting('sgf.recalculo', true) = 'on' then
+    new.data := old.data || jsonb_build_object('resultado', calcular_resultado(old.data));
+    return new;
+  end if;
   select * into p from perfis where user_id = auth.uid();
   link := link_seguro(new.data->>'linkAudio');
   if link is null then raise exception 'O link do áudio precisa começar com https://'; end if;
@@ -485,6 +526,9 @@ begin
     else new.data := new.data - k; end if;
   end loop;
 
+  if coalesce(new.data->>'modelo', '1') = '2' and perguntas_sem_resposta(new.data) > 0 then
+    raise exception 'Responda todos os itens da avaliação antes de salvar (faltam %).', perguntas_sem_resposta(new.data);
+  end if;
   new.data := new.data || jsonb_build_object('resultado', calcular_resultado(new.data));
   new.data := new.data || jsonb_build_object(
     'editadaEm', now(),
@@ -673,6 +717,13 @@ create policy anot_del on public.anotacoes for delete to authenticated
 
 revoke execute on function public.supervisiona_anotacoes() from public, anon;
 grant execute on function public.supervisiona_anotacoes() to authenticated;
+
+-- ---------------------------------------------------------------------
+-- 11. RECÁLCULO DAS NOTAS ANTIGAS PELA REGRA 2: NÃO roda aqui.
+--     Use supabase/recalculo-1-previa.sql (só mostra) e depois
+--     supabase/recalculo-2-aplicar.sql (aplica). Avaliações novas e
+--     editadas já usam a regra 2 automaticamente.
+-- ---------------------------------------------------------------------
 
 -- ---------------------------------------------------------------------
 -- Fim: avisa a API do Supabase para enxergar tabelas/colunas novas na hora.

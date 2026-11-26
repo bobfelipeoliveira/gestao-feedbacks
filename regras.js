@@ -160,18 +160,44 @@ function conceitoDe(nota){
 // avaliacao.criterios = { "A1": 2, "A2": 1, "A3": "NA", ... }
 // avaliacao.portugues  = { concordancia:0, pronomes:1, regencia:0, vocabulario:0, conjugacao:0 }
 
+/* ------------------------------------------------------------------
+   REGRA DA NOTA (desde 26/11/2026, aplicada a TODAS as avaliações):
+   - A nota começa em 100.
+   - Cada item vale 100 ÷ número de itens (modelo atual: 20 itens = 5 pontos;
+     modelo antigo: 30 itens = 3,33 pontos).
+   - Realizou completamente (2): não perde nada.
+   - Parcialmente realizado (1): perde metade do valor do item (2,5).
+   - Não realizou (0): perde o valor inteiro do item (5).
+   - Não se aplica (N/A): não perde nada.
+   - Depois, subtrai os descontos de português.
+   - Nota mínima 0; arredondada para 1 casa decimal.
+   A mesma regra está na função calcular_resultado do banco (schema.sql).
+   ------------------------------------------------------------------ */
+var REGRA_NOTA = 2;
+
+function valorDoItem(lista){ return 100 / lista.length; }
+
+/* Perda de um item: 0 → 1 (valor inteiro), 1 → 0,5, 2/N/A/em branco → 0 */
+function fracaoPerdida(v){
+  if (v === undefined || v === null || v === "" || v === "NA") return 0;
+  const n = Number(v);
+  if (n === 0) return 1;
+  if (n === 1) return 0.5;
+  return 0;
+}
+function respondido(v){
+  if (v === undefined || v === null || v === "") return false;
+  if (v === "NA") return true;
+  const n = Number(v);
+  return n === 0 || n === 1 || n === 2;   // valor inválido conta como em branco
+}
+
+/* Nota de um grupo de categorias (indicador): mesma regra, 0 a 100. */
 function calcularSubnota(criteriosResp, cats, lista){
-  let soma = 0, count = 0;
-  for (const crit of (lista || CRITERIOS_V1)){
-    if (!cats.includes(crit.cat)) continue;
-    const v = criteriosResp[crit.cod];
-    if (v === undefined || v === null || v === "NA" || v === "") continue;
-    const n = Number(v);
-    if (!Number.isFinite(n)) continue;
-    soma += n; count += 1;
-  }
-  if (count === 0) return null;
-  return Math.round((soma/(count*2))*1000)/10;
+  const itens = (lista || CRITERIOS_V1).filter(c => cats.includes(c.cat));
+  if (!itens.length || !itens.some(c => respondido(criteriosResp[c.cod]))) return null;
+  const perdido = itens.reduce((s, c) => s + fracaoPerdida(criteriosResp[c.cod]), 0);
+  return Math.round((1 - perdido / itens.length) * 1000) / 10;
 }
 
 function calcularPenalizacaoPortugues(portuguesResp){
@@ -185,27 +211,36 @@ function calcularPenalizacaoPortugues(portuguesResp){
 
 function calcularResultado(avaliacao){
   const lista = criteriosDe(avaliacao);
-  const criteriosResp = respostasEfetivas(avaliacao);
-  let pontosObtidos = 0, pontosMax = 0;
+  const resp = respostasEfetivas(avaliacao);
+  const valor = valorDoItem(lista);
+  let naoRealizados = 0, parciais = 0, itensNA = 0, emBranco = 0, perguntasRespondidas = 0;
   for (const crit of lista){
-    const v = criteriosResp[crit.cod];
-    if (v === undefined || v === null || v === "NA" || v === "") continue;
+    const v = resp[crit.cod];
+    if (!crit.auto && respondido(v)) perguntasRespondidas++;
+    if (!respondido(v)) { emBranco++; continue; }
+    if (v === "NA") { itensNA++; continue; }
     const n = Number(v);
-    if (!Number.isFinite(n)) continue;
-    pontosObtidos += n;
-    pontosMax += 2;
+    if (n === 0) naoRealizados++;
+    else if (n === 1) parciais++;
   }
+  const descontoItens = (naoRealizados + parciais * 0.5) * valor;
   const subnotas = {};
   for (const [chave, info] of Object.entries(SUBNOTA_MAP)){
-    subnotas[chave] = calcularSubnota(criteriosResp, info.cats, lista);
+    subnotas[chave] = calcularSubnota(resp, info.cats, lista);
   }
-  const totalDescontado = calcularPenalizacaoPortugues(avaliacao.portugues);
-  const penalizacao = -totalDescontado; // positivo
-  let notaBase = pontosMax > 0 ? (pontosObtidos/pontosMax)*100 : 0;
-  let notaFinal = Math.max(0, Math.round((notaBase - penalizacao)*10)/10);
+  const totalDescontado = calcularPenalizacaoPortugues(avaliacao.portugues);   // negativo ou zero
+  const penalizacao = -totalDescontado;
+  // avaliação sem nenhuma pergunta respondida não recebe nota
+  const notaFinal = perguntasRespondidas === 0 ? 0
+    : Math.max(0, Math.round((100 - descontoItens - penalizacao) * 10) / 10);
   const conceito = conceitoDe(notaFinal);
   return {
-    pontosObtidos, pontosMax,
+    regra: REGRA_NOTA,
+    itensTotal: lista.length,
+    valorItem: Math.round(valor * 100) / 100,
+    naoRealizados, parciais, itensNA, emBranco,
+    descontoItens: Math.round(descontoItens * 10) / 10,
+    notaItens: Math.round((100 - descontoItens) * 10) / 10,
     notaTecnica: subnotas.tecnica,
     notaComunicacao: subnotas.comunicacao,
     notaHumanizacao: subnotas.humanizacao,
@@ -228,7 +263,7 @@ function percentualPorCategoria(av){
 
 if (typeof module !== "undefined" && module.exports){
   module.exports = { CRITERIOS, CRITERIOS_V1, CRITERIOS_V2, MODELO_ATUAL, modeloDe, criteriosDe, criteriosPerguntaDe,
-    usouFraseProibida, respostasEfetivas, CATEGORIAS, CATEGORIA_ORDEM, SUBNOTA_MAP, PORTUGUES_CATEGORIAS, FRASES_PROIBIDAS,
+    usouFraseProibida, respostasEfetivas, valorDoItem, fracaoPerdida, REGRA_NOTA, CATEGORIAS, CATEGORIA_ORDEM, SUBNOTA_MAP, PORTUGUES_CATEGORIAS, FRASES_PROIBIDAS,
     IMPACTO_OPCOES, CONCEITO_FAIXAS, STATUS_MONITORIA_OPCOES, conceitoDe, calcularSubnota,
     calcularPenalizacaoPortugues, calcularResultado, percentualPorCategoria };
 }

@@ -701,6 +701,16 @@ function wizardIrParaEtapa(idx){
 var SALVANDO_AVALIACAO = false;
 async function finalizarAvaliacao(){
   if (SALVANDO_AVALIACAO) return;
+  if (modeloDe(RASCUNHO) === 2){
+    const faltam = criteriosPerguntaDe(RASCUNHO).filter(c => !criterioRespondido(RASCUNHO, c));
+    if (faltam.length){
+      alert(`Responda todos os itens antes de finalizar.\n\nFaltam ${faltam.length}: ${faltam.map(c => c.cod).join(", ")}.\n\nSe um item não cabe nesta ligação, marque N/A.`);
+      WIZARD_STEP = WIZARD_STEPS.findIndex(s => s.id === "avaliacao");
+      CRITERIOS_MOSTRAR_PENDENTES = true;
+      renderApp(); window.scrollTo(0, 0);
+      return;
+    }
+  }
   SALVANDO_AVALIACAO = true;
   const envio = Object.assign({}, RASCUNHO);
   envio.transcricao = "";   // a transcrição completa não é guardada (dados pessoais); ficam a sugestão e os trechos de evidência
@@ -1425,6 +1435,25 @@ function cardConfigIA(){
   ]);
 }
 
+function fmtValorItem(v){ return (Math.round(v * 100) / 100).toString().replace(".", ","); }
+function fmtUm(v){ return Number(v).toFixed(1).replace(".", ","); }
+
+/* A conta da nota, linha por linha: "começa em 100 − falhas − parciais − português". */
+function contaDaNota(res){
+  if (!res || res.regra !== 2) return null;
+  const v = res.valorItem, linhas = [["Nota inicial", "100"]];
+  if (res.naoRealizados) linhas.push([`${res.naoRealizados} ${res.naoRealizados === 1 ? "item não realizado" : "itens não realizados"} × ${fmtValorItem(v)}`, "− " + fmtUm(res.naoRealizados * v)]);
+  if (res.parciais) linhas.push([`${res.parciais} ${res.parciais === 1 ? "item parcial" : "itens parciais"} × ${fmtValorItem(v / 2)}`, "− " + fmtUm(res.parciais * v / 2)]);
+  if (res.penalizacaoPortugues) linhas.push(["Erros de português", "− " + fmtUm(res.penalizacaoPortugues)]);
+  if (!res.naoRealizados && !res.parciais && !res.penalizacaoPortugues) linhas.push(["Nenhum desconto", "0"]);
+  linhas.push(["Nota final", fmtUm(res.notaFinal)]);
+  return el("div", {class:"conta-nota"}, [
+    ...linhas.map(([a, b], i) => el("div", {class:"conta-linha" + (i === linhas.length - 1 ? " conta-total" : "")}, [el("span", {}, a), el("span", {}, b)])),
+    (res.itensNA ? el("div", {class:"muted conta-obs"}, `${res.itensNA} ${res.itensNA === 1 ? "item marcado" : "itens marcados"} como N/A (não descontam).`) : null),
+    (res.emBranco ? el("div", {class:"muted conta-obs"}, `${res.emBranco} ${res.emBranco === 1 ? "item ficou" : "itens ficaram"} sem resposta (avaliação anterior à regra de itens obrigatórios; não descontam).`) : null),
+  ]);
+}
+
 function criterioRespondido(r, crit){
   const v = r.criterios[crit.cod];
   return v !== undefined && v !== null && v !== "";
@@ -1537,7 +1566,7 @@ function linhaCriterio(crit){
     el("div", {class:"criterio-linha-topo"}, [
       el("span", {class:"criterio-cod"}, crit.cod),
       el("span", {class:"criterio-linha-desc"}, crit.desc),
-      el("span", {class:"crit-max", title:"Pontuação máxima deste item"}, "Valor máximo: 2 pontos"),
+      el("span", {class:"crit-max", title:"Parcialmente realizado perde a metade; N/A não perde"}, `Vale ${fmtValorItem(valorDoItem(criteriosDe(RASCUNHO)))} pontos`),
       respondido ? el("span", {class:"criterio-linha-check"}, (r.criteriosOrigem && r.criteriosOrigem[crit.cod] === "ia" ? "🤖 " : "") + "✓") : null,
     ]),
     opcoesEl,
@@ -1677,7 +1706,8 @@ function telaResultado(opts){
   r._resultadoPreview = res;
   const impactoInfo = IMPACTO_OPCOES.find(o => o.chave === r.impacto);
 
-  return wizardCard("Resultado da Monitoria", "Calculado automaticamente a partir dos critérios preenchidos.", [
+  return wizardCard("Resultado da Monitoria", "A nota começa em 100: cada item não realizado tira " + fmtValorItem(res.valorItem) + " pontos e cada item parcial tira " + fmtValorItem(res.valorItem / 2) + ".", [
+    contaDaNota(res),
     el("div", {class:"resultado-hero"}, [
       el("div", {class:"resultado-nota", style:`color:${res.conceitoCor}`}, res.notaFinal.toFixed(1)),
       el("div", {class:"resultado-conceito", style:`background:${res.conceitoCor}18;color:${res.conceitoCor}`}, res.conceito),
@@ -1691,7 +1721,10 @@ function telaResultado(opts){
     el("div", {class:"resultado-extra"}, [
       el("div", {}, [el("strong",{}, "Penalização por Português: "), `${res.penalizacaoPortugues.toFixed(1)} pontos`]),
       el("div", {}, [el("strong",{}, "Impacto Assistencial: "), impactoInfo ? `${impactoInfo.emoji} ${impactoInfo.label}` : "não informado"]),
-      el("div", {}, [el("strong",{}, "Pontos obtidos: "), `${res.pontosObtidos} de ${res.pontosMax} pontos aplicáveis`]),
+      (function(){
+        const faltam = modeloDe(r) === 2 ? criteriosPerguntaDe(r).filter(c => !criterioRespondido(r, c)).length : 0;
+        return faltam ? el("div", {class:"banner-aviso"}, `Faltam ${faltam} ${faltam === 1 ? "item" : "itens"} sem resposta. Todos os itens são obrigatórios para finalizar.`) : null;
+      })(),
       r.ia ? (function(){ const o = iaResumoOrigem(r); return el("div", {}, [el("strong",{}, "Origem das respostas: "), `${o.ia} aceitas da IA · ${o["ia-editado"]} ajustadas por você · ${o.manual} manuais`]); })() : null,
     ]),
   ], opts);
@@ -1867,6 +1900,8 @@ function renderAvaliacaoDetalhe(main, id){
       linhaInfo("Critérios", `${o.ia} aceitos da sugestão · ${o["ia-editado"]} ajustados pelo supervisor · ${o.manual} manuais`),
       linhaInfo("Observação", "A nota final é de responsabilidade do supervisor avaliador."),
     ]; })()) : null,
+
+    contaDaNota(res) ? secaoRelatorio("Como a nota foi calculada", [contaDaNota(res)]) : null,
 
     secaoRelatorio("Português e Frases Proibidas", [
       linhaInfo("Penalização por português", res.penalizacaoPortugues.toFixed(1)+" pontos"),

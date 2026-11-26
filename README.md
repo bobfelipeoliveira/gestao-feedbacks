@@ -86,6 +86,18 @@ update perfis set role = 'admin', ativo = true where username = 'seu.login';
 
 ---
 
+## Regra da nota (desde 26/11/2026)
+
+**A nota começa em 100. São 20 itens e cada item vale 5 pontos.** Parcialmente realizado perde 2,5;
+não realizou perde 5; N/A não perde. Frase proibida perde 5 (item B6). Erros de português descontam por
+ocorrência. Nota mínima 0. Todos os itens são obrigatórios (garantido também no banco).
+A aba **Critérios** mostra tudo isso, gerada pelo mesmo cálculo da nota; cada avaliação mostra a sua conta.
+
+**Recálculo das avaliações antigas** (decisão da coordenação: vale para todas):
+1. rode `supabase/recalculo-1-previa.sql` — mostra nota atual × nota nova, **não altera nada**;
+2. confira e rode `supabase/recalculo-2-aplicar.sql` — aplica uma única vez, guarda a versão anterior de cada
+   avaliação (`avaliacoes_versoes`) e registra na Auditoria.
+
 ## Meu Acompanhamento (anotações privadas)
 
 Caderno particular de cada avaliador sobre cada colaborador, separado das avaliações formais.
