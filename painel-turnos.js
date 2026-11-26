@@ -11,7 +11,8 @@
    ============================================================ */
 
 var FILTROS_DASH = {de:"", ate:"", mes:"", colaboradorId:"", turno:""};
-var COR_TURNO = {Diurno:"#D9772E", Noturno:"#6B2FA0"};   // validadas (daltonismo/contraste)
+/* Cores dos turnos vêm do tema (claro: #D9772E/#6B2FA0; escuro: #D9772E/#A77BE0), validadas para daltonismo/contraste. */
+var COR_TURNO = {get Diurno(){ return corTema("--turno-diurno", "#D9772E"); }, get Noturno(){ return corTema("--turno-noturno", "#6B2FA0"); }};
 var ICONE_TURNO = {Diurno:"☀️", Noturno:"🌙"};
 
 function normalizarTurno(t){
@@ -174,7 +175,7 @@ function cartaoTurno(t, s){
       ? el("ol", {class:"turno-ranking"}, s.ranking.map(x => el("li", {}, [
           el("span", {class:"turno-rank-nome"}, x.nome),
           el("span", {class:"turno-rank-n"}, `${x.n} aval.`),
-          el("span", {class:"turno-rank-nota", style:`color:${conceitoDe(x.media).cor}`}, x.media.toFixed(1)),
+          el("span", {class:"turno-rank-nota", style:`color:${corTexto(conceitoDe(x.media).cor)}`}, x.media.toFixed(1)),
         ])))
       : el("p", {class:"muted"}, "Sem avaliações no filtro."),
     (function(){
@@ -215,7 +216,7 @@ function desenharGraficosTurnos(r){
   const porMes = (t, fn) => meses.map(m => fn(r.stats[t].lista.filter(a => (a.dataMonitoria||"").slice(0,7) === m)));
   const rotulo = t => `${ICONE_TURNO[t]} ${t}`;
   const tooltipNota = {callbacks:{label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y === null ? "sem avaliação" : ctx.parsed.y.toFixed(1)}`}};
-  const eixoCinza = {grid:{color:"#E4DFEE"}, ticks:{color:"#6E6580"}};
+  const eixoCinza = {grid:{color:corTema("--chart-grid")}, ticks:{color:corTema("--chart-text")}};
 
   criarChart("lineTurnos", "line", {
     labels: meses.map(nomeMes),
@@ -223,7 +224,7 @@ function desenharGraficosTurnos(r){
       label: rotulo(t),
       data: porMes(t, l => l.length ? Number((l.reduce((s,a)=>s+a.resultado.notaFinal,0)/l.length).toFixed(1)) : null),
       borderColor: COR_TURNO[t], backgroundColor: COR_TURNO[t], borderWidth: 2, pointRadius: 4, pointHoverRadius: 6,
-      pointBorderColor: "#fff", pointBorderWidth: 2, tension: 0.25, spanGaps: true,
+      pointBorderColor: corTema("--surface", "#fff"), pointBorderWidth: 2, tension: 0.25, spanGaps: true,
     })),
   }, {interaction:{mode:"index", intersect:false}, plugins:{tooltip: tooltipNota, legend:{position:"bottom"}},
       scales:{y:{...eixoCinza, suggestedMin: 50, suggestedMax: 100}, x:{...eixoCinza, grid:{display:false}}}});

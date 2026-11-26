@@ -3,9 +3,24 @@
    gestão de usuários e auditoria (somente administrador)
    ============================================================ */
 
+/* Botão claro/escuro (a preferência fica só neste navegador). */
+function botaoTema(extraClasse){
+  const escuro = temaAtual() === "dark";
+  return el("button", {class:"btn-tema" + (extraClasse ? " " + extraClasse : ""), type:"button",
+    title: escuro ? "Mudar para o tema claro" : "Mudar para o tema escuro",
+    "aria-label": escuro ? "Mudar para o tema claro" : "Mudar para o tema escuro",
+    onclick: () => { alternarTema(); aoMudarTema(); }}, escuro ? "☀️ Claro" : "🌙 Escuro");
+}
+/* Redesenha a tela (e os gráficos) com as cores do novo tema. */
+window.aoMudarTema = function(){
+  if (USUARIO && STATE) renderApp();
+  else document.querySelectorAll(".btn-tema").forEach(b => b.replaceWith(botaoTema(b.classList.contains("auth-tema") ? "auth-tema" : "")));
+};
+
 function telaCentral(conteudo){
   const root = document.getElementById("app");
   root.innerHTML = "";
+  root.appendChild(botaoTema("auth-tema"));
   const dock = document.getElementById("audio-dock");
   if (dock) dock.style.display = "none";
   root.appendChild(el("div", {class:"auth-wrap"}, [
@@ -117,6 +132,7 @@ function menuUsuario(){
       el("span", {class:"user-nome"}, USUARIO.nome),
       el("span", {class:"pill" + (ehAdmin() ? "" : " pill-muted")}, ehAdmin() ? "Administrador" : "Coordenador(a)"),
     ]),
+    botaoTema(),
     el("button", {class:"btn btn-ghost btn-sm", onclick:()=>irPara("minha-senha")}, "Minha senha"),
     el("button", {class:"btn btn-ghost btn-sm", onclick: sair}, "Sair"),
   ]);

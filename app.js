@@ -570,7 +570,7 @@ function linhaUltimaMonitoria(a){
       el("div", {class:"list-row-title"}, colaboradorNome(a.colaboradorId)),
       el("div", {class:"list-row-sub"}, `${fmtData(a.dataMonitoria)} · ${a.supervisor || "—"}`),
     ]),
-    el("div", {class:"pill", style:`background:${cor}22;color:${cor};border-color:${cor}55`}, nota),
+    el("div", {class:"pill", style:`background:${cor}22;color:${corTexto(cor)};border-color:${cor}55`}, nota),
   ]);
 }
 /* ============================================================
@@ -1709,8 +1709,8 @@ function telaResultado(opts){
   return wizardCard("Resultado da Monitoria", "A nota começa em 100: cada item não realizado tira " + fmtValorItem(res.valorItem) + " pontos e cada item parcial tira " + fmtValorItem(res.valorItem / 2) + ".", [
     contaDaNota(res),
     el("div", {class:"resultado-hero"}, [
-      el("div", {class:"resultado-nota", style:`color:${res.conceitoCor}`}, res.notaFinal.toFixed(1)),
-      el("div", {class:"resultado-conceito", style:`background:${res.conceitoCor}18;color:${res.conceitoCor}`}, res.conceito),
+      el("div", {class:"resultado-nota", style:`color:${corTexto(res.conceitoCor)}`}, res.notaFinal.toFixed(1)),
+      el("div", {class:"resultado-conceito", style:`background:${res.conceitoCor}18;color:${corTexto(res.conceitoCor)}`}, res.conceito),
     ]),
     el("div", {class:"resultado-barras"}, [
       barraCategoria("Nota Técnica", res.notaTecnica),
@@ -1826,7 +1826,7 @@ function linhaHistorico(a){
     el("div", {class:"td"}, a.paciente || "—"),
     el("div", {class:"td"}, a.supervisor || "—"),
     el("div", {class:"td"}, fmtData(a.dataMonitoria)),
-    el("div", {class:"td"}, el("span",{class:"pill", style:`background:${cor}22;color:${cor};border-color:${cor}55`}, a.resultado?fmtNota(a.resultado.notaFinal):"—")),
+    el("div", {class:"td"}, el("span",{class:"pill", style:`background:${cor}22;color:${corTexto(cor)};border-color:${cor}55`}, a.resultado?fmtNota(a.resultado.notaFinal):"—")),
     el("div", {class:"td"}, a.resultado ? a.resultado.conceito : "—"),
     el("div", {class:"td"}, (a.rastreabilidade||{}).status || "—"),
     el("div", {class:"td acoes-linha"}, [
@@ -1868,7 +1868,7 @@ function renderAvaliacaoDetalhe(main, id){
         el("h2", {}, colaboradorNome(a.colaboradorId)),
         el("div", {class:"report-sub"}, `Monitoria em ${fmtData(a.dataMonitoria)} · Supervisor: ${a.supervisor||"—"}`),
       ]),
-      el("div", {class:"report-nota", style:`color:${res.conceitoCor}`}, [
+      el("div", {class:"report-nota", style:`color:${corTexto(res.conceitoCor)}`}, [
         el("div", {class:"report-nota-valor"}, fmtNota(res.notaFinal)),
         el("div", {class:"report-nota-conceito"}, res.conceito),
       ]),
@@ -2045,7 +2045,7 @@ function listaRankingCard(titulo, itens, ruim){
     itens.length === 0 ? el("p",{class:"muted"},"Sem dados suficientes.") :
     el("div", {}, itens.map(it => el("div", {class:"rank-row"}, [
       el("span", {}, it.label),
-      el("span", {class:"rank-valor", style:`color:${ruim?'#D64550':'#1F9254'}`}, it.valor),
+      el("span", {class:"rank-valor", style:`color:${corTexto(ruim?'#D64550':'#1F9254')}`}, it.valor),
     ]))),
   ]);
 }
@@ -2055,7 +2055,7 @@ function listaContagemCard(titulo, itens){
     itens.length === 0 ? el("p",{class:"muted"},"Nenhuma ocorrência registrada.") :
     el("div", {}, itens.map(it => el("div", {class:"rank-row"}, [
       el("span", {}, it.label),
-      el("span", {class:"rank-valor", style:"color:#D64550"}, it.valor),
+      el("span", {class:"rank-valor", style:"color:var(--ct-vermelho)"}, it.valor),
     ]))),
   ]);
 }
@@ -2141,7 +2141,7 @@ function desenharGraficosDashboard(avals){
   const mesesOrdenados = Object.keys(porMes).sort();
   criarChart("barMes", "bar", {
     labels: mesesOrdenados.map(m=>m),
-    datasets: [{label:"Monitorias", data: mesesOrdenados.map(m=>porMes[m]), backgroundColor:"#6B2FA0"}],
+    datasets: [{label:"Monitorias", data: mesesOrdenados.map(m=>porMes[m]), backgroundColor:corTema("--primary")}],
   }, {plugins:{legend:{display:false}}});
 
   // Ranking colaboradores
@@ -2182,13 +2182,27 @@ function desenharGraficosDashboard(avals){
   }
   criarChart("lineEvolucao", "line", {
     labels: mesesOrdenados,
-    datasets: [{label:"Nota média", data: mesesOrdenados.map(m=>mediaMes[m].toFixed(1)), borderColor:"#6B2FA0", backgroundColor:"#6B2FA033", fill:true, tension:0.3}],
+    datasets: [{label:"Nota média", data: mesesOrdenados.map(m=>mediaMes[m].toFixed(1)), borderColor:corTema("--primary"), backgroundColor:corTema("--primary") + "33", fill:true, tension:0.3}],
   }, {plugins:{legend:{display:false}}});
+}
+
+/* Cor de TEXTO para as cores de conceito/status: mesma família, com contraste
+   suficiente em cada tema (as cores originais continuam nos fundos e gráficos). */
+var MAPA_COR_TEXTO = {"#1F9254":"--ct-verde", "#2E6FD9":"--ct-azul", "#E0A83E":"--ct-amarelo", "#E8874A":"--ct-laranja", "#D64550":"--ct-vermelho"};
+function corTexto(cor){ const v = MAPA_COR_TEXTO[String(cor || "").toUpperCase()]; return v ? `var(${v})` : cor; }
+
+/* Lê uma cor do tema atual (variável CSS). */
+function corTema(nome, padrao){
+  const v = getComputedStyle(document.documentElement).getPropertyValue(nome).trim();
+  return v || padrao || "#888";
 }
 
 function criarChart(canvasId, tipo, data, extraOpts={}){
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
+  // textos, eixos e grade dos gráficos acompanham o tema claro/escuro
+  Chart.defaults.color = corTema("--chart-text");
+  Chart.defaults.borderColor = corTema("--chart-grid");
   CHART_INSTANCES[canvasId] = new Chart(canvas, {
     type: tipo,
     data,
@@ -2213,7 +2227,7 @@ function renderColaboradoresLista(main){
       el("div", {class:"colab-card-meta"}, `${c.funcao} · ${c.turno}`),
       el("div", {class:"colab-card-foot"}, [
         el("span", {class:"pill"}, `${avals.length} monitoria(s)`),
-        media !== null ? el("span", {class:"pill", style:`background:${conceitoDe(media).cor}22;color:${conceitoDe(media).cor}`}, media.toFixed(1)) : null,
+        media !== null ? el("span", {class:"pill", style:`background:${conceitoDe(media).cor}22;color:${corTexto(conceitoDe(media).cor)}`}, media.toFixed(1)) : null,
         !c.elegivel ? el("span", {class:"pill pill-muted"}, "Não elegível") : null,
       ]),
     ]);
@@ -2302,7 +2316,7 @@ function renderColaboradorDetalhe(main, id){
     const percCat = percentualPorCategoriaAgregado(avals);
     criarChart("radarColab", "radar", {
       labels: CATEGORIA_ORDEM.map(c=>CATEGORIAS[c]),
-      datasets: [{label:c.nome, data: CATEGORIA_ORDEM.map(cat=>percCat[cat]||0), backgroundColor:"#6B2FA033", borderColor:"#6B2FA0", pointBackgroundColor:"#6B2FA0"}],
+      datasets: [{label:c.nome, data: CATEGORIA_ORDEM.map(cat=>percCat[cat]||0), backgroundColor:corTema("--primary") + "33", borderColor:corTema("--primary"), pointBackgroundColor:corTema("--primary")}],
     }, {scales:{r:{min:0,max:100}}});
 
     criarChart("lineColabEvolucao", "line", {
