@@ -673,3 +673,4 @@ body.tem-dock{padding-bottom:70px;}
 .btn-tema{border:1px solid var(--border); background:var(--surface); color:var(--text); border-radius:999px; padding:5px 10px; font-size:13px; line-height:1; display:inline-flex; align-items:center; gap:6px;}
 .btn-tema:hover{background:var(--primary-soft);}
 .auth-tema{position:fixed; top:14px; right:14px;}
+@media print{ .banner-sucesso{display:none !important;} }

@@ -381,8 +381,19 @@ function el(tag, attrs={}, children=[]){
   return e;
 }
 
+/* Data de hoje no fuso do navegador (Brasília), no formato AAAA-MM-DD.
+   toISOString() usaria o horário de Londres e, depois das 21h, daria o dia seguinte. */
+function hojeLocal(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;
+}
+
 function fmtData(iso){
   if (!iso) return "—";
+  // datas "AAAA-MM-DD" são datas do calendário, sem fuso: formata direto.
+  // (new Date("2026-11-26") seria meia-noite em Londres = 25/11 às 21h em Brasília)
+  const m = String(iso).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
   const d = new Date(iso);
   if (isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("pt-BR");
@@ -581,7 +592,7 @@ function novoRascunho(){
   return {
     id: gerarId("aval"),
     modelo: MODELO_ATUAL,
-    dataMonitoria: new Date().toISOString().slice(0,10),
+    dataMonitoria: hojeLocal(),
     supervisor: USUARIO ? USUARIO.nome : "",
     colaboradorId: "",
     equipe: "Intercorrência",
