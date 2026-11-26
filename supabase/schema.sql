@@ -202,7 +202,10 @@ begin
   new.data := new.data
     || jsonb_build_object('id', new.id, 'linkAudio', link, 'transcricao', '', 'finalizada', true);
   if not importada then
-    new.data := new.data || jsonb_build_object('modelo', 2);   -- novas avaliações sempre no modelo atual
+    new.data := new.data || jsonb_build_object('modelo', 2)    -- novas avaliações sempre no modelo atual
+      -- turno e função do colaborador NA DATA da avaliação (dashboard por turno)
+      || coalesce((select jsonb_build_object('turnoColaborador', c.data->'turno', 'funcaoColaborador', c.data->'funcao')
+                   from colaboradores c where c.id = new.data->>'colaboradorId'), '{}'::jsonb);
   end if;
   if importada then
     new.autor_id := null;
@@ -462,7 +465,7 @@ create or replace function public.trg_avaliacao_upd() returns trigger
 language plpgsql security definer set search_path = public as $$
 declare
   p perfis; link text; k text;
-  imutaveis constant text[] := array['supervisor','autorId','autorNome','registradaEm','importadaEm','importadaPor','criadaEm','finalizadaEm','modelo'];
+  imutaveis constant text[] := array['supervisor','autorId','autorNome','registradaEm','importadaEm','importadaPor','criadaEm','finalizadaEm','modelo','turnoColaborador','funcaoColaborador'];
 begin
   select * into p from perfis where user_id = auth.uid();
   link := link_seguro(new.data->>'linkAudio');

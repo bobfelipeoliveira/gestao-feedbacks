@@ -433,6 +433,7 @@ function renderApp(){
       navBtn("relatorios","Relatórios"),
       navBtn("acompanhamento","Meu Acompanhamento"),
       ehAdmin() ? navBtn("usuarios","Usuários") : null,
+      navBtn("criterios","Critérios"),
       ehAdmin() ? navBtn("auditoria","Auditoria") : null,
       ehAdmin() ? navBtn("configuracoes","Configurações") : null,
     ]),
@@ -485,6 +486,7 @@ function renderView(main){
     case "auditoria": return ehAdmin() ? renderAuditoria(main) : renderSemPermissao(main);
     case "minha-senha": return renderMinhaSenha(main);
     case "acompanhamento": return renderAcompanhamento(main);
+    case "criterios": return renderCriterios(main);
     default: return renderHome(main);
   }
 }
@@ -1535,6 +1537,7 @@ function linhaCriterio(crit){
     el("div", {class:"criterio-linha-topo"}, [
       el("span", {class:"criterio-cod"}, crit.cod),
       el("span", {class:"criterio-linha-desc"}, crit.desc),
+      el("span", {class:"crit-max", title:"Pontuação máxima deste item"}, "Valor máximo: 2 pontos"),
       respondido ? el("span", {class:"criterio-linha-check"}, (r.criteriosOrigem && r.criteriosOrigem[crit.cod] === "ia" ? "🤖 " : "") + "✓") : null,
     ]),
     opcoesEl,
@@ -1590,7 +1593,7 @@ function telaPortugues(opts){
       () => { r.portuguesHouve = true; },
       () => { r.portuguesHouve = false; r.portugues = {}; }),
     !temErro ? null : el("div", {}, [
-    el("p", {class:"muted"}, "Registre a quantidade de ocorrências de cada tipo. O desconto é calculado automaticamente."),
+    el("p", {class:"muted"}, "Registre a quantidade de ocorrências de cada tipo. Cada ocorrência desconta da nota final o valor indicado entre parênteses."),
     dicaPortuguesIA(),
     el("div", {class:"pt-table"}, PORTUGUES_CATEGORIAS.map(p => el("div", {class:"pt-row"}, [
       el("div", {class:"pt-nome"}, [p.nome, el("span", {class:"pt-peso"}, ` (${p.peso})`)]),
@@ -1613,7 +1616,7 @@ function telaFrasesProibidas(opts){
       () => { r.frases.houve = true; },
       () => { r.frases = {outraFlag:false, outraDesc:"", houve:false}; }),
     !usou ? null : el("div", {}, [
-    el("p", {class:"muted"}, "Marque as frases que foram utilizadas." + (modeloDe(r) === 2 ? " Qualquer frase marcada zera o critério B6." : "")),
+    el("p", {class:"muted"}, "Marque as frases que foram utilizadas." + (modeloDe(r) === 2 ? " Qualquer frase marcada zera o critério B6 (valor máximo: 2 pontos)." : "")),
     dicaFrasesIA(),
     el("div", {class:"checklist"}, FRASES_PROIBIDAS.map((frase, i) => {
       const marcado = !!r.frases[i];
@@ -1942,17 +1945,19 @@ var CORES_GRAFICO = ["#6B2FA0","#E8874A","#2E6FD9","#1F9254","#E0A83E","#D64550"
 
 function renderDashboard(main){
   destruirCharts();
-  const avals = STATE.avaliacoes;
+  // filtros (período, mês, colaborador, turno) valem para TODO o painel
+  const avals = filtrarAvaliacoesDash(STATE.avaliacoes);
   const comNota = avals.filter(a => a.resultado);
   const page = el("div", {class:"page"});
   page.appendChild(el("div", {class:"page-header"}, [
     el("h1", {}, "Central de Indicadores"),
     el("p", {class:"page-sub"}, "Visão consolidada da qualidade das monitorias da equipe."),
   ]));
+  page.appendChild(barraFiltrosDash());
 
   if (comNota.length === 0){
     page.appendChild(el("div", {class:"empty-state"}, [
-      el("p", {}, "Ainda não há avaliações suficientes para gerar indicadores."),
+      el("p", {}, STATE.avaliacoes.length ? "Nenhuma avaliação encontrada com os filtros selecionados." : "Ainda não há avaliações suficientes para gerar indicadores."),
       el("button", {class:"btn btn-primary", onclick:()=>irPara("nova-avaliacao")}, "Fazer a primeira avaliação"),
     ]));
     main.appendChild(page);
@@ -1967,6 +1972,9 @@ function renderDashboard(main){
     kpiCard("Colaboradores avaliados", String(new Set(avals.map(a=>a.colaboradorId)).size), "◈"),
   ]));
 
+  page.appendChild(renderPainelTurnos(comNota));
+
+  page.appendChild(el("h2", {class:"section-title"}, "Visão geral da equipe"));
   page.appendChild(el("div", {class:"chart-grid"}, [
     chartCard("Distribuição por Conceito", "doughnutConceito"),
     chartCard("Monitorias por Mês", "barMes"),

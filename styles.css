@@ -480,3 +480,89 @@ body.tem-dock{padding-bottom:70px;}
   .acomp-colabs{max-height:240px;}
 }
 @media print{ .acomp-nota-acoes, .acomp-nova, .acomp-lateral, .acomp-abas{display:none !important;} }
+
+/* ============================================================
+   ABA CRITÉRIOS
+   ============================================================ */
+.crit-page{max-width:980px;}
+.crit-resumo{display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:16px;}
+.crit-tile{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px 16px;}
+.crit-tile-valor{font-family:var(--font-display); font-size:26px; font-weight:600; color:var(--primary-deep);}
+.crit-tile-texto{font-size:12.5px; color:var(--text-muted); margin-top:2px;}
+.crit-secao{margin-bottom:16px;}
+.crit-secao-titulo{font-size:19px; margin-bottom:4px;}
+.crit-secao-sub{margin-bottom:12px;}
+.crit-sub{font-family:var(--font-display); font-size:15.5px; color:var(--primary-deep); margin:18px 0 8px;}
+.crit-escala{display:grid; grid-template-columns:repeat(4,1fr); gap:10px;}
+.crit-escala-item{border:1px solid var(--border); border-radius:10px; padding:12px; text-align:center;}
+.crit-escala-valor{font-family:var(--font-display); font-size:24px; font-weight:700; color:var(--primary-deep);}
+.crit-escala-nome{font-weight:600; font-size:13.5px; margin:2px 0;}
+.crit-escala-2{border-color:#1F925266; background:#1F92540A;}
+.crit-escala-0{border-color:#D6455066; background:#D645500A;}
+.crit-categoria{margin-top:14px;}
+.crit-cat-titulo{font-family:var(--font-body); font-size:13px; font-weight:700; letter-spacing:.03em; color:var(--primary-deep); display:flex; justify-content:space-between; gap:10px; flex-wrap:wrap; border-bottom:1px solid var(--border); padding-bottom:6px; margin-bottom:8px;}
+.crit-cat-meta{font-weight:500; color:var(--text-muted); letter-spacing:0; font-size:12px;}
+.crit-itens{display:flex; flex-direction:column; gap:6px;}
+.crit-item{padding:8px 10px; border-radius:8px; background:var(--bg);}
+.crit-item-topo{display:flex; align-items:baseline; gap:8px;}
+.crit-item-desc{flex:1; font-size:14px;}
+.crit-item-regra{font-size:12.5px; color:var(--text-muted); margin:3px 0 0 42px;}
+.crit-max{font-size:11.5px; font-weight:600; color:var(--primary); background:var(--primary-soft); border-radius:999px; padding:2px 9px; white-space:nowrap;}
+.crit-tabela{margin:8px 0;}
+.crit-tab-3{grid-template-columns:2fr 1fr 1fr !important;}
+.crit-lista-texto{margin:8px 0 0; padding-left:20px; font-size:14px; line-height:1.6;}
+.crit-frases{display:flex; flex-wrap:wrap; gap:6px; margin-top:8px;}
+.crit-faixas{display:flex; flex-direction:column; gap:6px;}
+.crit-faixa{display:flex; align-items:center; gap:10px; font-size:14px;}
+.crit-faixa-cor{width:14px; height:14px; border-radius:4px; flex:none;}
+.crit-passos{padding-left:20px; line-height:1.7; font-size:14px;}
+.crit-formula{font-family:var(--font-mono); font-size:13.5px; background:var(--primary-soft); color:var(--primary-deep); border-radius:10px; padding:12px 14px; margin:12px 0;}
+.crit-exemplos{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
+.crit-exemplo{border:1px solid var(--border); border-radius:10px; padding:12px 14px;}
+.crit-exemplo-titulo{font-weight:700; color:var(--primary-deep); margin-bottom:6px;}
+.crit-exemplo ul{margin:0; padding-left:18px; font-size:13px; line-height:1.6;}
+.crit-exemplo-nota{margin-top:8px; font-size:15px;}
+.crit-antigo{margin-top:12px;}
+.crit-antigo > summary{cursor:pointer; font-weight:600; color:var(--primary);}
+/* valor máximo durante a avaliação */
+.criterio-linha-topo .crit-max{margin-left:auto;}
+
+/* ============================================================
+   DASHBOARD — ANÁLISE POR TURNO
+   ============================================================ */
+.dash-filtros{margin-bottom:16px;}
+.turnos-secao{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:18px; margin:18px 0;}
+.turnos-cabecalho{margin-bottom:14px;}
+.turnos-grid{display:grid; grid-template-columns:1fr 200px 1fr; gap:14px; align-items:stretch;}
+.turno-card{border:1px solid var(--border); border-radius:12px; padding:14px 16px; border-top:4px solid;}
+.turno-diurno{border-top-color:#D9772E; background:linear-gradient(#D9772E0A, transparent 60%);}
+.turno-noturno{border-top-color:#6B2FA0; background:linear-gradient(#6B2FA00D, transparent 60%);}
+.turno-titulo{font-family:var(--font-display); font-size:17px; font-weight:600; color:var(--primary-deep); display:flex; align-items:center; gap:8px; margin-bottom:10px;}
+.turno-icone{font-size:20px;}
+.turno-kpis{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:12px;}
+.turno-kpi-valor{font-family:var(--font-display); font-size:24px; font-weight:700; color:var(--text);}
+.turno-kpi-rot{font-size:11.5px; color:var(--text-muted);}
+.turno-rank-titulo{font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted); margin-bottom:4px;}
+.turno-ranking{margin:0; padding-left:20px; font-size:13.5px;}
+.turno-ranking li{padding:4px 0; border-bottom:1px dashed var(--border);}
+.turno-ranking li > span{display:inline-block;}
+.turno-rank-nome{width:58%;}
+.turno-rank-n{width:20%; color:var(--text-muted); font-size:12px;}
+.turno-rank-nota{width:20%; text-align:right; font-weight:700; font-family:var(--font-mono);}
+.turno-sem-aval{font-size:12px; margin-top:8px;}
+.turno-comparacao{display:flex; flex-direction:column; justify-content:center; align-items:center; text-align:center; border:1px dashed var(--border); border-radius:12px; padding:12px;}
+.turno-comp-rotulo{font-size:12px; font-weight:700; text-transform:uppercase; color:var(--text-muted);}
+.turno-comp-valor{font-family:var(--font-display); font-size:34px; font-weight:700; color:var(--primary-deep);}
+.turno-comp-linha{display:flex; gap:12px; font-size:12.5px; margin-top:8px; color:var(--text-muted);}
+.turno-pendencias{margin-top:14px; border-radius:10px; padding:10px 14px; font-size:13.5px; background:#1F92540D; color:#17693d;}
+.turno-pendencias-ativa{background:#E0A83E14; border:1px solid #E0A83E55; color:var(--text);}
+.turno-pend-titulo{font-weight:700;}
+.turno-pendencias ul{margin:6px 0 0; padding-left:20px; line-height:1.6;}
+@media (max-width:900px){
+  .turnos-grid{grid-template-columns:1fr;}
+  .crit-resumo, .crit-escala{grid-template-columns:1fr 1fr;}
+  .crit-exemplos{grid-template-columns:1fr;}
+  .crit-item-regra{margin-left:0;}
+}
+@media (max-width:720px){ .chart-grid{grid-template-columns:1fr;} }
+@media (max-width:720px){ .kpi-row{grid-template-columns:1fr 1fr !important;} .kpi-card{min-width:0;} }
