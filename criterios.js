@@ -25,11 +25,13 @@ function renderCriterios(main){
 
   // ---- resumo
   page.appendChild(el("div", {class:"crit-resumo"}, [
-    critTile(String(nPerg), "perguntas respondidas pelo avaliador"),
-    critTile("+1", "item automático (B6 — frases proibidas)"),
-    critTile(String(nItens * 2), "pontos possíveis (todos os itens aplicáveis)"),
-    critTile("≈ " + fmtNum(pesoItem), "pontos na nota final por item (quando todos se aplicam)"),
+    critTile(String(nPerg) + " perguntas", "que o avaliador responde (0, 1, 2 ou N/A)"),
+    critTile("+ 1 automático", "“Evitou frases proibidas” (B6): o sistema preenche sozinho — 0 se alguma frase foi marcada, 2 se nenhuma"),
+    critTile(String(nItens * 2) + " pontos", `pontuação máxima: ${nItens} itens × 2 pontos (quando todos se aplicam)`),
+    critTile(fmtNum(pesoItem).replace(",0", "") + " pontos", `peso de cada item na nota de 0 a 100: item não realizado tira ${fmtNum(pesoItem).replace(",0","")}; parcialmente realizado tira ${fmtNum(pesoItem / 2)}`),
   ]));
+  page.appendChild(el("p", {class:"muted crit-resumo-exemplo"},
+    `Exemplo: fez tudo certo = 100. Esqueceu um item = ${fmtNum(100 - pesoItem).replace(",0","")}. Fez um item pela metade = ${fmtNum(100 - pesoItem / 2)}. Item marcado como N/A sai da conta e os demais passam a pesar um pouco mais.`));
 
   // ---- 1. escala
   page.appendChild(critSecao("1. Escala de pontuação", "Vale para todos os itens.", [

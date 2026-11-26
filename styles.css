@@ -566,3 +566,4 @@ body.tem-dock{padding-bottom:70px;}
 }
 @media (max-width:720px){ .chart-grid{grid-template-columns:1fr;} }
 @media (max-width:720px){ .kpi-row{grid-template-columns:1fr 1fr !important;} .kpi-card{min-width:0;} }
+.crit-resumo-exemplo{margin:-6px 0 16px; font-size:13.5px;}
